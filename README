@@ -1,0 +1,10 @@
+pyutil
+======
+
+This is a library of general-purpose Python modules/scripts that I have found useful, 
+especially for text processing/natural language processing applications.
+
+The contents of https://github.com/nschneid/pyutil are released under the MIT License 
+(see LICENSE).
+
+-- Nathan Schneider, 2012-04-13
