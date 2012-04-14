@@ -34,6 +34,24 @@ token, a gold tag, and a predicted tag, separated by tabs. Blank lines
 indicate mandatory chunk boundaries (e.g. sentence boundaries if tagging 
 words).
 
+The character ` has a special meaning when used in the first and/or second 
+tag field: it causes the entire token to be ignored when reading in the file. 
+This can be used to abstain from judging predictions for certain tokens, though 
+it should be used with caution as it may result in a different chunk interpretation 
+of neighboring tokens. E.g., the sequences
+
+a    O    B-1
+b    `    B-2
+c    O    I-2
+
+and
+
+a    O    O
+b    `    B
+c    O    I
+
+will both be rendered invalid if the middle token is ignored. If ` is used for all 
+tokens in a sequence, the sequence will safely be ignored.
 
 @since: 2012-01-30
 @author: Nathan Schneider (nschneid)
@@ -48,6 +66,9 @@ if __name__ == "__main__" and __package__ is None:
     import scoring
 else:
     from . import scoring
+
+
+IGNORE_SYMBOL = '`'
 
 def isContinuation(tag, scheme='BIO'):
     pm = tag[0]
@@ -466,8 +487,11 @@ def loadSequences(conllF, scheme='BIO'):
     An error is raised if any of the sequences are ill-formed.
     '''
     
+    
     def nextSequence(conllF, scheme='BIO'):
+        '''@return: The next (non-ignored) sequence as a list, or [] if there is no remaining sequence.'''
         seq = []
+        nIgnored = 0
         for ln in conllF:
             ln = ln[:-1]
             if ln.strip()=='':
@@ -477,12 +501,25 @@ def loadSequences(conllF, scheme='BIO'):
             assert tkn,'Missing token on line: {}'.format(ln)
             assert goldt,'Missing first (gold) tag on line: {}'.format(ln)
             assert predt,'Missing second (predicted) tag on line: {}'.format(ln)
+            
+            if goldt==IGNORE_SYMBOL or predt==IGNORE_SYMBOL:
+                nIgnored += 1
+                continue
+            
             gold = goldt.split('-') if '-' in goldt else (goldt, None)
             gold = (str(gold[0]), gold[1])  # convert from unicode
             pred = tuple(predt.split('-')) if '-' in predt else (predt, None)
             pred = (str(pred[0]), pred[1])
             assert len(gold)==len(pred)==2
             seq.append((tkn, gold, pred))
+            
+        if nIgnored>0:
+            global nIgnoredTokens, nIgnoredSeqs
+            nIgnoredTokens += nIgnored
+            nIgnoredSeqs += 1   # this sequence was at least partially ignored
+            if not seq: # this sequence was entirely ignored; get the next one
+                return nextSequence(conllF, scheme)
+            
         return seq
     
     while True:
@@ -555,6 +592,10 @@ if __name__=='__main__':
     nTokens = Counter() # label set => number of tokens in the sequences corresponding to this label set
     allLabels = set()
     
+    global nIgnoredTokens, nIgnoredSeqs
+    nIgnoredTokens = 0
+    nIgnoredSeqs = 0
+    
     sys.stdin = codecs.getreader("utf-8")(sys.stdin)
     for seq in loadSequences(fileinput.input(args.conllFiles, openhook=fileinput.hook_encoded("utf-8")), scheme):
         tkns,golds,preds = zip(*seq)
@@ -612,7 +653,10 @@ if __name__=='__main__':
             confs['Manning2']['mention'] += manningChk
             
     if len(data)==0:
-        print('No relevant sequences for the given options')
+        print('No relevant sequences for the given options', file=sys.stderr)
+        
+    if nIgnoredTokens>0:
+        print('Ignoring {} tokens in {} sequences'.format(nIgnoredTokens, nIgnoredSeqs), file=sys.stderr)
     
     for lblset,(confs,softPR) in sorted(data.items(), key=lambda itm: itm[0]):
         if lblset==():
