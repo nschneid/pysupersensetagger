@@ -468,12 +468,17 @@ def ensureSequence(seq, scheme='BIO' or 'IO' or 'BILOU', fixProblems=False):
         raise Exception('Illegal position marker sequence (tagging scheme {}): B B or B O or B U or I U or L L or O L (must use U for all and only length-1 mentions)'.format(scheme))
     
     # ensure each mention has a consistent label
-    for t1,t2 in zip(seq, seq[1:]):
+    for (i,t1),t2 in zip(enumerate(seq), seq[1:]):
         pm2, l2 = t2
         if pm2=='O' and l2 is not None:
             raise Exception('Illegal label for an O tag: {}'.format(l2))
         if isContinuation(pm2, scheme=scheme) and l2!=t1[1]:
-            raise Exception("Continuation tag's label ({}) is inconsistent with previous label ({})".format(l2, t1[1]))
+            if fixProblems:
+                s = "Continuation tag's label ({}) is inconsistent with previous label ({}); using the previous one".format(l2, t1[1])
+                print(s, file=sys.stderr)
+                seq[i+1] = (pm2, t1[1])
+            else:
+                raise Exception("Continuation tag's label ({}) is inconsistent with previous label ({})".format(l2, t1[1]))
         
     return seq
 
@@ -542,15 +547,15 @@ def loadSequences(conllF, scheme='BIO'):
 '''
 Error report:
 
-              00000  TOKENS  00000               00000  MENTIONS  00000
-        found xtra miss O/O                found xtra miss O/O
-          tp   fp   fn    tn   P% R% F1%     tp   fp   fn    tn   P% R% F1%
-Exact L  0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0
-Exact UL 0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # ignoring labels
-Soft L   0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # ignoring position markers / mention match if at least one of its tokens is found with the correct label
-Soft UL  0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # unlabeled: collapsing B & I / mention match if at least one of its tokens is found
-Bag L    0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # treating each sentence as a bag of labeled items
-Bag UL   0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # treating each sentence as a bag of unlabeled items
+              00000  TOKENS  00000                  00000  MENTIONS  00000
+        found xtra miss O/O                   found xtra miss O/O
+          tp   fp   fn    tn   A% P% R% F1%     tp   fp   fn    tn   P% R% F1%
+Exact L  0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0
+Exact UL 0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # ignoring labels
+Soft L   0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # ignoring position markers / mention match if at least one of its tokens is found with the correct label
+Soft UL  0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # unlabeled: collapsing B & I / mention match if at least one of its tokens is found
+Bag L    0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # treating each sentence as a bag of labeled items
+Bag UL   0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0    # treating each sentence as a bag of unlabeled items
 Manning  0000 0000 0000 000000              0000 0000 0000 000000           
          le: 0000  be: 0000  lbe: 0000      le: 0000  be: 0000  lbe: 0000   
 '''
@@ -679,9 +684,9 @@ if __name__=='__main__':
         
         print('''
 {}
-    {:5}             {:5}  TOKENS  {:<5}           {:5}  MENTIONS  {:<5}
-        found xtra miss O/O                found xtra miss O/O
-          tp   fp   fn    tn   P% R% F1%     tp   fp   fn    tn   P% R% F1%'''.format(lblsS, scheme, nTokens[lblset], nSeqs[lblset], nGoldMentions, nPredMentions))
+    {:5}             {:5}  TOKENS  {:<5}              {:5}  MENTIONS  {:<5}
+        found xtra miss O/O                   found xtra miss O/O
+          tp   fp   fn    tn   A% P% R% F1%     tp   fp   fn    tn   P% R% F1%'''.format(lblsS, scheme, nTokens[lblset], nSeqs[lblset], nGoldMentions, nPredMentions))
         
         # TODO: Manning score?
         for x in ['Exact L', 'Exact UL', 'Soft L', 'Soft UL', 'Bag L', 'Bag UL', 'Manning', 'Manning2']:
@@ -697,7 +702,7 @@ if __name__=='__main__':
                 prf = conf.asPRF(suppressZeroDenominatorCheck=True)
                 
                 if x!='Manning':
-                    print('{: >2.0f} {: >2.0f} {: >4.1f}   '.format(100*prf.P, 100*prf.R, 100*prf.F), end='')
+                    print('{: >2.0f} {: >2.0f} {: >2.0f} {: >4.1f}   '.format(100*conf.pAgreement, 100*prf.P, 100*prf.R, 100*prf.F), end='')
                 else:
                     print('{:2} {:2} {:4}   '.format('','',''), end='')
     
@@ -718,6 +723,8 @@ if __name__=='__main__':
                     
                 if x!='Manning':
                     print('{: >2.0f} {: >2.0f} {: >4.1f}'.format(*prf), end='')
+                    # for more decimal places:
+                    #print('{: >2.2f} {: >2.2f} {: >4.2f}'.format(*prf), end='')
                 print()
     if args.v:
         print('''
@@ -725,15 +732,15 @@ if __name__=='__main__':
                                    L E G E N D
 ---------------------------------------------------------------------------------
 (Selected labels)
-(0)          (1)  TOKENS  (2)                   (3)  MENTIONS  (4)
-        found xtra miss O/O                found xtra miss O/O
-          tp   fp   fn    tn   P% R% F1%     tp   fp   fn    tn   P% R% F1%
-Exact L  0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (7)
-Exact UL 0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (8)
-Soft L   0000 0000 0000 000000 00 00 00.0      - 0000 0000      - 00 00 00.0  (9)
-Soft UL  0000 0000 0000 000000 00 00 00.0      - 0000 0000      - 00 00 00.0  (10)
-Bag L    0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (11)
-Bag UL   0000 0000 0000 000000 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (12)
+(0)          (1)  TOKENS  (2)                      (3)  MENTIONS  (4)
+        found xtra miss O/O                   found xtra miss O/O
+          tp   fp   fn    tn   A% P% R% F1%     tp   fp   fn    tn   P% R% F1%
+Exact L  0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (7)
+Exact UL 0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (8)
+Soft L   0000 0000 0000 000000 00 00 00 00.0      - 0000 0000      - 00 00 00.0  (9)
+Soft UL  0000 0000 0000 000000 00 00 00 00.0      - 0000 0000      - 00 00 00.0  (10)
+Bag L    0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (11)
+Bag UL   0000 0000 0000 000000 00 00 00 00.0   0000 0000 0000 000000 00 00 00.0  (12)
 Manning  0000 0000 0000 000000              0000 0000 0000 000000             (13)
          le: 0000  be: 0000  lbe: 0000      le: 0000  be: 0000  lbe: 0000      |
          ------------- (5) --------------   ------------- (6) -------------- 
@@ -750,7 +757,7 @@ Any (gold or predicted) tag with a label not in this set will be replaced with O
 
 (5) token-level, (6) mention-level statistics
 COLUMNS true positives, false positives, false negatives, true negatives, 
-        precision, recall, F1
+        accuracy (token-level only), precision, recall, F1
 
 MEASURES
 (7) Exact, labeled: tokens/mentions only count if the prediction exactly matches the gold 
