@@ -21,7 +21,12 @@ kinds of arguments. Note that the proposition frame is NOT
 necessarily the same as the OntoNotes word sense, which is NOT 
 necessarily the same as the WordNet sense. (Supposedly there are 
 mappings between the three lexical resources, but I cannot figure 
-out how to access those mappings.)
+out how to access those mappings.) In principle the OntoNotes word 
+senses include both verbs and nouns, but few nouns are explicitly 
+annotated with a sense. (The OntoNotes 4 documentation reports 70% 
+sense coverage of nouns in the WSJ subcorpus, but this is largely due 
+to monosemous nouns which are presumably straightfoward but have no 
+explicit annotation.)
 
 Not demonstrated here: accessing syntactic information, coreference 
 annotations, or the 'speaker' or 'parallel' banks.
@@ -101,6 +106,7 @@ But 0 0
 this 1 1
 is 2 2
   SENSE:  be v 2
+  >>>>>>  equivalence between two things, or class inclusion of one thing by another.
   PROP: 
    be 01 gold 2
    -----
@@ -118,6 +124,7 @@ Bush 5 5
 Sr. 6 6
 heard 7 7
   SENSE:  hear v 1
+  >>>>>>  learn, receive information, take heed of
   PROP: 
    hear 01 gold 7
    -------
