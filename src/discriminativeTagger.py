@@ -4,7 +4,7 @@ Created on Jul 24, 2012
 @author: Nathan Schneider (nschneid)
 '''
 from __future__ import print_function, division
-import os, sys, re, fileinput, codecs, random, gzip
+import sys, codecs, random
 
 from labeledSentence import LabeledSentence
 import supersenseFeatureExtractor, morph
@@ -165,8 +165,8 @@ class DiscriminativeTagger(object):
         updates = set()
         
         for i in range(len(sent)):
-            pred = self._labels.index(sent.getPredictionAt(i))
-            gold = self._labels.index(sent.getLabelAt(i))
+            pred = self._labels.index(sent[i].prediction)
+            gold = self._labels.index(sent[i].gold)
             
             if pred==gold: continue # TODO: is this correct if we are being cost-augmented?
             
@@ -231,7 +231,7 @@ class DiscriminativeTagger(object):
         if supersenseFeatureExtractor.hasFirstOrderFeatures():
             _o1Feats = [0]*len(self._labels)
             for l,lbl in enumerate(self._labels):
-                key = 'prevLabel='+lbl  # TODO: assumes this is the only first-order feature
+                key = ('prevLabel=',lbl)  # TODO: assumes this is the only first-order feature
                 self._featureIndexes.add(key)
                 
         # instantiate the rest of the features
@@ -314,7 +314,8 @@ class DiscriminativeTagger(object):
             
         prevLabel = None
         
-        sent.setPredictions([None]*nTokens)
+        for i, tok in enumerate(sent):
+            sent[i] = tok._replace(prediction=None)
         
         for i in range(nTokens):
             o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
@@ -327,7 +328,7 @@ class DiscriminativeTagger(object):
                 score0 = self._computeScore(o0FeatureMap, weights, l)
                 
                 # cost-augmented decoding
-                if label!=sent.getLabelAt(i):
+                if label!=sent[i].gold:
                     if includeLossTerm:
                         score0 += 1.0   # base cost of any error
                     if label=='O':
@@ -341,7 +342,7 @@ class DiscriminativeTagger(object):
                     # compute correct score based on previou scores
                     score = 0.0
                     if i>0:
-                        sent.setPredictionAt(i-1, prevLabel)
+                        sent[i-1] = sent[i-1]._replace(prediction=prevLabel)
                         score = dpValues[i-1][k]
                     
                     # the score for the previou label is added on separately here,
@@ -379,7 +380,7 @@ class DiscriminativeTagger(object):
         
         # now proceed backwards, following backpointers
         for i in range(nTokens-1,-1,-1):
-            sent.setPredictionAt(i, self._labels[maxIndex])
+            sent[i] = sent[i]._replace(prediction=self._labels[maxIndex])
             maxIndex = dpBackPointers[i][maxIndex]
     
     
@@ -429,7 +430,7 @@ class DiscriminativeTagger(object):
                 # will update currentWeights as well as running average in finalWeights
                 
                 for i in range(len(sent)):
-                    if sent.getLabelAt(i)!=sent.getPredictionAt(i):
+                    if sent[i].gold != sent[i].prediction:
                         nWordsIncorrect += 1
                 nWordsProcessed += len(sent)
                 totalInstancesProcessed += 1
@@ -444,14 +445,14 @@ class DiscriminativeTagger(object):
                     break
                 
             if developmentMode:
-                self.test()
+                #self.test()
                 
                 if savePrefix is not None:
                     if not averaging:
                         finalWeights = currentWeights
                     
                     self.saveModel(savePrefix+'.'+str(numIters))
-                    with open(savePrefix+'.'+str(numIters)+'.weights') as outF:
+                    with open(savePrefix+'.'+str(numIters)+'.weights', 'w') as outF:
                         self.printWeights(outF, currentWeights)
                 
             print('weight updates this iteration:',nWeightUpdates, file=sys.stderr)
@@ -471,10 +472,7 @@ class DiscriminativeTagger(object):
         print(len(self._featureIndexes),'lifted features x',len(self._labels),'labels =',len(self._featureIndexes)*len(self._labels),'grounded features', file=out)
         print('labels:',self._labels,'\n', file=out)
         for fname in sorted(self._featureIndexes.strings):
-            print(fname, file=out)
-     
-    def printWeights(self, weights, out):
-        raise NotImplemented()
+            print(''.join(fname), file=out)
     
     def saveModel(self, savePrefix):
         raise NotImplemented()

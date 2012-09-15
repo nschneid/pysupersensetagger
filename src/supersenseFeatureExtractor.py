@@ -5,7 +5,7 @@ Ported from Michael Heilman's SuperSenseFeatureExtractor.java
 @since: 2012-07-22
 '''
 from __future__ import print_function, division
-import sys, os, re, fileinput, gzip
+import sys, re, gzip
 
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
@@ -78,7 +78,6 @@ class SequentialStringIndexer(object):
             return k<len(self._i2s)
         return k in self._s2i
     def add(self, s):
-        assert isinstance(s,basestring)
         if s not in self:
             if self.is_frozen():
                 raise ValueError('Cannot add new item to frozen indexer: '+s)
@@ -124,7 +123,7 @@ class IndexedStringSet(set):
         return self._indexer[k]
 
 class IndexedFeatureMap(object):
-    def __init__(self, indexer, default=1.0):
+    def __init__(self, indexer, default=1):
         self._set = IndexedStringSet(indexer)
         self._map = {}
         self._default = default
@@ -200,10 +199,10 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
     next2Cluster = endSymbol
     
     if j-2 >= 0:
-        prev2Shape = sent.getWordShapeAt(j-2)
-        prev2Stem = sent.getStemAt(j-2)
-        prev2POS = sent.getPOSAt(j-2)
-        if useClusterFeatures: prev2Cluster = wordClusterID(sent.getTokensAt(j-2))
+        prev2Shape = sent[j-2].shape
+        prev2Stem = sent[j-2].stem
+        prev2POS = sent[j-2].pos
+        if useClusterFeatures: prev2Cluster = wordClusterID(sent[j-2].token)
         
     if j-1 >= 0:
         prevTok, prevStem, prevPOS, prevGold, prevPred, prevShape = sent[j-1]
@@ -215,23 +214,23 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             
         
     if j+1 < len(sent):
-        nextShape = sent.getWordShapeAt(j+1)
-        nextStem = sent.getStemAt(j+1)
-        nextPOS = sent.getPOSAt(j+1)
-        if useClusterFeatures: nextCluster = wordClusterID(sent.getTokenAt(j+1))
+        nextShape = sent[j+1].shape
+        nextStem = sent[j+1].stem
+        nextPOS = sent[j+1].pos
+        if useClusterFeatures: nextCluster = wordClusterID(sent[j+1].token)
         
     if j+2 < len(sent):
-        next2Shape = sent.getWordShapeAt(j+2)
-        next2Stem = sent.getStemAt(j+2)
-        next2POS = sent.getPOSAt(j+2)
-        if useClusterFeatures: next2Cluster = wordClusterID(sent.getTokenAt(j+2));
+        next2Shape = sent[j+2].shape
+        next2Stem = sent[j+2].stem
+        next2POS = sent[j+2].pos
+        if useClusterFeatures: next2Cluster = wordClusterID(sent[j+2].token);
         
     '''
         //sentence level lexicalized features
         //for(int i=0;i<sent.length();i++){
         //    if(j==i) continue;
         //    String sentStem = sent.getStems()[i);
-        //    featureMap.put("curTok+sentStem="+curTok+"\t"+sentStem,1.0/sent.length());
+        //    featureMap.put("curTok+sentStem="+curTok+"\t"+sentStem,1/sent.length());
         //}
     '''
     
@@ -239,95 +238,95 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
     
     if 0 in _orders:
         # bias
-        featureMap["bias"] = 1.0
+        featureMap["bias",] = 1
             
         # first sense features
         if firstSense is None: firstSense = "0";
-        featureMap[''.join(["firstSense=",firstSense])] = 1.0
-        featureMap[''.join(["firstSense+curTok=",firstSense,"\t",curStem])] = 1.0
+        featureMap["firstSense=",firstSense] = 1
+        featureMap["firstSense+curTok=",firstSense,"\t",curStem] = 1
             
             
         if useClusterFeatures:
             # cluster features for the current token
-            featureMap[''.join(["firstSense+curCluster=",firstSense,"\t",curCluster])] = 1.0
-            featureMap[''.join(["curCluster=",curCluster])] = 1.0
+            featureMap["firstSense+curCluster=",firstSense,"\t",curCluster] = 1
+            featureMap["curCluster=",curCluster] = 1
 
         
         
     # previous label feature (first-order Markov dependency)
-    if 1 in _orders and prevLabel!=startSymbol: featureMap[''.join(["prevLabel=",prevLabel])] = 1.0
+    if 1 in _orders and prevLabel!=startSymbol: featureMap["prevLabel=",prevLabel] = 1
         
     if 0 in _orders:
         # word and POS features
         if curPOS=="NN" or curPOS=="NNS":
-            featureMap[("curPOS_common")] = 1.0
+            featureMap["curPOS_common",] = 1
         if curPOS=="NNP" or curPOS=="NNPS":
-            featureMap[("curPOS_proper")] = 1.0
+            featureMap["curPOS_proper",] = 1
             
-        featureMap[''.join(["curTok=",curStem])] = 1.0
-        featureMap[''.join(["curPOS=",curPOS])] = 1.0
-        featureMap[''.join(["curPOS_0=",curPOS[0]])] = 1.0
+        featureMap["curTok=",curStem] = 1
+        featureMap["curPOS=",curPOS] = 1
+        featureMap["curPOS_0=",curPOS[0]] = 1
         
         if prevPOS != startSymbol:
-            featureMap[''.join(["prevTok=",prevStem])] = 1.0
-            if useBigramFeatures: featureMap[''.join(["prevTok+curTok=",prevStem,"\t",curStem])] = 1.0
-            featureMap[''.join(["prevPOS=",prevPOS])] = 1.0
-            featureMap[''.join(["prevPOS_0=",prevPOS[0]])] = 1.0
-            if useClusterFeatures: featureMap[''.join(["prevCluster=",prevCluster])] = 1.0
-            #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1.0
+            featureMap["prevTok=",prevStem] = 1
+            if useBigramFeatures: featureMap["prevTok+curTok=",prevStem,"\t",curStem] = 1
+            featureMap["prevPOS=",prevPOS] = 1
+            featureMap["prevPOS_0=",prevPOS[0]] = 1
+            if useClusterFeatures: featureMap["prevCluster=",prevCluster] = 1
+            #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
             
         if nextPOS != endSymbol:
-            featureMap[''.join(["nextTok=",nextStem])] = 1.0
-            if useBigramFeatures: featureMap[''.join(["nextTok+curTok=",nextStem,"\t",curStem])] = 1.0
-            featureMap[''.join(["nextPOS=",nextPOS])] = 1.0
-            featureMap[''.join(["nextPOS_0=",nextPOS[0]])] = 1.0
-            if useClusterFeatures: featureMap[''.join(["nextCluster=",nextCluster])] = 1.0
-            #if useClusterFeatures: featureMap["firstSense+nextCluster="+firstSense+"\t"+nextCluster] = 1.0
+            featureMap["nextTok=",nextStem] = 1
+            if useBigramFeatures: featureMap["nextTok+curTok=",nextStem,"\t",curStem] = 1
+            featureMap["nextPOS=",nextPOS] = 1
+            featureMap["nextPOS_0=",nextPOS[0]] = 1
+            if useClusterFeatures: featureMap["nextCluster=",nextCluster] = 1
+            #if useClusterFeatures: featureMap["firstSense+nextCluster="+firstSense+"\t"+nextCluster] = 1
     
             
         if prev2POS != startSymbol:
-            featureMap[''.join(["prev2Tok=",prev2Stem])] = 1.0
-            featureMap[''.join(["prev2POS=",prev2POS])] = 1.0
-            featureMap[''.join(["prev2POS_0=",prev2POS[0]])] = 1.0
-            if useClusterFeatures: featureMap[''.join(["prev2Cluster=",prev2Cluster])] = 1.0
-            #if useClusterFeatures: featureMap["firstSense+prev2Cluster="+firstSense+"\t"+prev2Cluster] = 1.0
+            featureMap["prev2Tok=",prev2Stem] = 1
+            featureMap["prev2POS=",prev2POS] = 1
+            featureMap["prev2POS_0=",prev2POS[0]] = 1
+            if useClusterFeatures: featureMap["prev2Cluster=",prev2Cluster] = 1
+            #if useClusterFeatures: featureMap["firstSense+prev2Cluster="+firstSense+"\t"+prev2Cluster] = 1
             
         if next2POS != endSymbol:
-            featureMap[''.join(["next2Tok=",next2Stem])] = 1.0
-            featureMap[''.join(["next2POS=",next2POS])] = 1.0
-            featureMap[''.join(["next2POS_0=",next2POS[0]])] = 1.0
-            if useClusterFeatures: featureMap[''.join(["next2Cluster=",next2Cluster])] = 1.0
-            #if useClusterFeatures: featureMap["firstSense+next2Cluster="+firstSense+"\t"+next2Cluster] = 1.0
+            featureMap["next2Tok=",next2Stem] = 1
+            featureMap["next2POS=",next2POS] = 1
+            featureMap["next2POS_0=",next2POS[0]] = 1
+            if useClusterFeatures: featureMap["next2Cluster=",next2Cluster] = 1
+            #if useClusterFeatures: featureMap["firstSense+next2Cluster="+firstSense+"\t"+next2Cluster] = 1
             
             
         # word shape features
         
-        featureMap[''.join(["curShape=",curShape])] = 1.0
+        featureMap["curShape=",curShape] = 1
             
         if prevPOS != startSymbol:
-            featureMap[''.join(["prevShape=",prevShape])] = 1.0
+            featureMap["prevShape=",prevShape] = 1
             
         if nextPOS != endSymbol:
-            featureMap[''.join(["nextShape=",nextShape])] = 1.0
+            featureMap["nextShape=",nextShape] = 1
             
         if prev2POS != startSymbol:
-            featureMap[''.join(["prev2Shape=",prev2Shape])] = 1.0
+            featureMap["prev2Shape=",prev2Shape] = 1
             
         if next2POS != endSymbol:
-            featureMap[''.join(["next2Shape=",next2Shape])] = 1.0
+            featureMap["next2Shape=",next2Shape] = 1
             
         firstCharCurTok = curTok[0]
         if firstCharCurTok.lower()==firstCharCurTok:
-            featureMap["curTokLowercase"] = 1.0
+            featureMap["curTokLowercase",] = 1
         elif j==0:
-            featureMap["curTokUpperCaseFirstChar"] = 1.0
+            featureMap["curTokUpperCaseFirstChar",] = 1
         else:
-            featureMap["curTokUpperCaseOther"] = 1.0
+            featureMap["curTokUpperCaseOther",] = 1
         
         # 3-letter prefix and suffix features (disabled by default)
         if usePrefixAndSuffixFeatures:
-            featureMap[''.join(["prefix=",curTok[:3]])] = 1.0
-            featureMap[''.join(["suffix=",curTok[-3:]])] = 1.0
+            featureMap["prefix=",curTok[:3]] = 1
+            featureMap["suffix=",curTok[-3:]] = 1
     
     
     return featureMap
@@ -354,13 +353,14 @@ def extractFirstSensePredictedLabels(sent):
     prefix = "B-"
     phrase = None
     
+    stems = [tok.stem for tok in sent]
     for i in range(len(sent)):
         mostFrequentSense = None
         
-        pos = sent.getPOS()[i]
+        pos = sent[i].pos
         for j in range(len(sent)-1, i-1, -1):
-            phrase = '_'.join(sent.getStems()[i:j+1])
-            endPos = sent.getPOS()[j]
+            phrase = '_'.join(stems[i:j+1])
+            endPos = sent[j].pos
             mostFrequentSense = getMostFrequentSense(phrase, pos[:1])
             if mostFrequentSense is not None: break
             mostFrequentSense = getMostFrequentSense(phrase, endPos[:1])
@@ -391,7 +391,7 @@ def getMostFrequentSense(phrase, pos):
         else:
             loadSenseDataNewFormat()
     
-    return senseMap.get(pos, {phrase: None}).get(phrase)
+    return senseMap[pos].get(phrase) if pos in senseMap else None
 
 def loadSenseDataNewFormat():
     '''
