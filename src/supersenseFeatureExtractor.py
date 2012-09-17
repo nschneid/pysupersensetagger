@@ -72,7 +72,7 @@ class SequentialStringIndexer(object):
                 return default
             return self._i2s[k]
         return self._s2i.get(k,default)
-    def __in__(self, k):
+    def __contains__(self, k):
         if isinstance(k,int):
             assert k>0
             return k<len(self._i2s)
