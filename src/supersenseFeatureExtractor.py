@@ -349,7 +349,7 @@ def extractFirstSensePredictedLabels(sent):
             loadSenseDataNewFormat()
 
     res = []
-        
+    
     prefix = "B-"
     phrase = None
     
@@ -359,11 +359,12 @@ def extractFirstSensePredictedLabels(sent):
         
         pos = sent[i].pos
         for j in range(len(sent)-1, i-1, -1):
-            phrase = '_'.join(stems[i:j+1])
+            #phrase = '_'.join(stems[i:j+1])    # SLOW
+            wordParts = tuple(stems[i:j+1])
             endPos = sent[j].pos
-            mostFrequentSense = getMostFrequentSense(phrase, pos[:1])
+            mostFrequentSense = getMostFrequentSense(wordParts, pos[:1])
             if mostFrequentSense is not None: break
-            mostFrequentSense = getMostFrequentSense(phrase, endPos[:1])
+            mostFrequentSense = getMostFrequentSense(wordParts, endPos[:1])
             if mostFrequentSense is not None: break
         
         prefix = "B-";
@@ -462,12 +463,16 @@ def _loadSenseFileOriginalFormat(senseFile, shortPOS):
             sense = parts[2]
             numSenses = (len(parts)-1)//spacing
 
+            # multiwords
+            wordParts = tuple(parts[0].split("_"))
+
             # first sense listed is the most frequent one
             # record it for the most frequent sense baseline algorithm
-            _addMostFrequentSense(parts[0], shortPOS, sense, numSenses)
+            _addMostFrequentSense(wordParts, shortPOS, sense, numSenses)
+            # store tuple of words instead of underscore-separated lemma, for efficiency reasons on lookup
             
             # read possible senses, split up multi word phrases
-            wordParts = parts[0].split("_")
+            
             for i in range(2,len(parts),spacing):
                 for j in range(len(wordParts)):
                     tmp = possibleSensesMap.get(wordParts[j], set())
