@@ -216,7 +216,7 @@ class DiscriminativeTagger(object):
             
         return len(updates)
     
-    def _createFeatures(self, sentIndices=slice(0,10)):
+    def _createFeatures(self, sentIndices=slice(0,2000)):
         '''Before training, loop through the training data once 
         to instantiate all possible features, and create the weight 
         vector'''
@@ -247,10 +247,11 @@ class DiscriminativeTagger(object):
                     # TODO: first-order features handled above, so zero-order only here
                     self._featureIndexes.add(h)
                 '''
-                    
-            print(',', file=sys.stderr, end='')
+            
             if nSent%1000==0:
                 print('.', file=sys.stderr, end='')
+            elif nSent%100==0:
+                print(',', file=sys.stderr, end='')
         
         self._trainingData.close_file()
         self._trainingData.open_file()
