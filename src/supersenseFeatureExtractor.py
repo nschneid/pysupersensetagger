@@ -20,7 +20,92 @@ clusterMap = None
 startSymbol = None
 endSymbol = None
 
-senseMap = {} # pos -> {word -> most frequent supersense}
+
+class Trie(object):
+    '''
+    Trie (prefix tree) data structure for mapping sequences to values.
+    Values can be overridden, but removal from the trie is not currently supported.
+    
+    >>> t = Trie()
+    >>> t['panther'] = 'PANTHER'
+    >>> t['panda'] = 'PANDA'
+    >>> t['pancake'] = 'PANCAKE'
+    >>> t['pastrami'] = 'PASTRAMI'
+    >>> t['pastafarian'] = 'PASTAFARIAN'
+    >>> t['noodles'] = 'NOODLES'
+        
+    >>> for s in ['panther', 'panda', 'pancake', 'pastrami', 'pastafarian', 'noodles']:
+    ...    assert s in t
+    ...    assert t.get(s)==s.upper()
+    >>> 'pescatarian' in t
+    False
+    >>> print(t.get('pescatarian'))
+    None
+    >>> t.longest('pasta', False)
+    False
+    >>> t.longest('pastafarian')
+    (('p', 'a', 's', 't', 'a', 'f', 'a', 'r', 'i', 'a', 'n'), 'PASTAFARIAN')
+    >>> t.longest('pastafarianism')
+    (('p', 'a', 's', 't', 'a', 'f', 'a', 'r', 'i', 'a', 'n'), 'PASTAFARIAN')
+    
+    >>> t[(3, 1, 4)] = '314'
+    >>> t[(3, 1, 4, 1, 5, 9)] = '314159'
+    >>> t[(0, 0, 3, 1, 4)] = '00314'
+    >>> t.longest((3, 1, 4))
+    ((3, 1, 4), '314')
+    >>> (3, 1, 4, 1, 5) in t
+    False
+    >>> print(t.get((3, 1, 4, 1, 5)))
+    None
+    >>> t.longest((3, 1, 4, 1, 5))
+    ((3, 1, 4), '314')
+    '''
+    def __init__(self):
+        self._map = {}  # map from sequence items to embedded Tries
+        self._vals = {} # map from items ending a sequence to their values
+    
+    def __setitem__(self, seq, v):
+        first, rest = seq[0], seq[1:]
+        if rest:
+            self._map.setdefault(first, Trie())[rest] = v
+        else:
+            self._vals[first] = v
+    
+    def __contains__(self, seq):
+        '''@return: whether a value is stored for 'seq' '''
+        first, rest = seq[0], seq[1:]
+        if rest:
+            if first not in self._map:
+                return False
+            return rest in self._map[first]
+        return first in self._vals
+    
+    def get(self, seq, default=None):
+        '''@return: value associated with 'seq' if 'seq' is in the trie, 'default' otherwise'''
+        first, rest = seq[0], seq[1:]
+        if rest:
+            if first not in self._map:
+                return default
+            return self._map[first].get(rest)
+        else:
+            return self._vals.get(first, default)
+        
+    def longest(self, seq, default=None):
+        '''@return: pair of longest prefix of 'seq' corresponding to a value in the Trie, and 
+        that value. If no prefix of 'seq' has a value, returns 'default'.'''
+        
+        first, rest = seq[0], seq[1:]
+        longer = self._map[first].longest(rest, default) if rest and first in self._map else default
+        if longer==default: # 'rest' is empty, or none of the prefix of 'rest' leads to a value
+            if first in self._vals:
+                return ((first,), self._vals[first])
+            else:
+                return default
+        else:
+            return ((first,)+longer[0], longer[1])
+        
+
+senseTrie = None  # word1 -> {word2 -> ... -> {pos -> most frequent supersense}}
 senseCountMap = {} # pos -> {word -> number of senses}
 possibleSensesMap = {} # stem -> set of possible supersenses
 
@@ -50,6 +135,8 @@ def wordClusterID(word):
     cid = clusterMap.get(word.lower(), 'UNK')
     if cid=='UNK': return cid
     return 'C'+str(cid)
+
+
 
 class SequentialStringIndexer(object):
     def __init__(self):
@@ -342,7 +429,7 @@ def extractFirstSensePredictedLabels(sent):
     @return list of predicted labels
     '''
     
-    if not senseMap:
+    if not senseTrie:
         if _options['useOldDataFormat']:
             loadSenseDataOriginalFormat()
         else:
@@ -354,10 +441,12 @@ def extractFirstSensePredictedLabels(sent):
     phrase = None
     
     stems = [tok.stem for tok in sent]
+    poses = [tok.pos for tok in sent]
     for i in range(len(sent)):
         mostFrequentSense = None
         
         pos = sent[i].pos
+        '''
         for j in range(len(sent)-1, i-1, -1):
             #phrase = '_'.join(stems[i:j+1])    # SLOW
             wordParts = tuple(stems[i:j+1])
@@ -366,33 +455,44 @@ def extractFirstSensePredictedLabels(sent):
             if mostFrequentSense is not None: break
             mostFrequentSense = getMostFrequentSense(wordParts, endPos[:1])
             if mostFrequentSense is not None: break
+        '''
         
-        prefix = "B-";
-        if mostFrequentSense is not None:
-            while i<j:
-                res.append(intern(prefix+mostFrequentSense))
-                prefix = "I-"
+        mostFrequentSense = getMostFrequentSensePrefix(stems[i:], poses[i:])
+        if mostFrequentSense:
+            wordParts, mostFrequentSense = mostFrequentSense
+            res.append(intern('B-'+mostFrequentSense))
+            i += 1
+            for word in wordParts[1:]:
+                res.append(intern('I-'+mostFrequentSense))
                 i += 1
-            
-        if mostFrequentSense is not None:
-            res.append(intern(prefix+mostFrequentSense))
         else:
             res.append("0")
         
     return res
 
-def getMostFrequentSense(phrase, pos):
+def getMostFrequentSensePrefix(stems, poses):
     '''
-    Look up the most frequent sense of an underscore-separated 
-    phrase and its POS.
+    Look up the most frequent sense of the words in a phrase and 
+    their POSes.
     '''
-    if not senseMap:
-        if _options['useOldDataFormat']:
-            loadSenseDataOriginalFormat()
-        else:
-            loadSenseDataNewFormat()
-    
-    return senseMap[pos].get(phrase) if pos in senseMap else None
+    if not senseTrie:
+        assert _options['useOldDataFormat']
+        loadSenseDataOriginalFormat()
+        
+    pos2sense = senseTrie.longest(stems)
+    if pos2sense:
+        prefix, pos2sense = pos2sense
+        if poses[0] in pos2sense:
+            return pos2sense[poses[0]]
+        elif poses[-1] in pos2sense:
+            return pos2sense[poses[-1]]
+        
+        # neither the first nor last POS of the longest-matching 
+        # series of words was a match. try a shorter prefix (rare).
+        stems, poses = stems[:len(prefix)-1], poses[:len(prefix)-1]
+        if stems:
+            return getMostFrequentSensePrefix(stems, poses)
+    return None
 
 def loadSenseDataNewFormat():
     '''
@@ -401,9 +501,8 @@ def loadSenseDataNewFormat():
     '''
     print("loading most frequent sense information...", file=sys.stderr)
     
-    global possibleSensesMap, senseMap, senseCountMap
+    global possibleSensesMap, senseCountMap
     assert not possibleSensesMap
-    assert not senseMap
     assert not senseCountMap
     
     nounFile = _options.setdefault("nounFile","../data/oldgaz/NOUNS_WS_SS_P.gz")
@@ -441,9 +540,10 @@ def loadSenseDataOriginalFormat():
     Load data from the original SST release
     '''
     print("loading most frequent sense information (old format)...", file=sys.stderr)
-    global possibleSensesMap, senseMap, senseCountMap
+    global possibleSensesMap, senseTrie, senseCountMap
+    assert not senseTrie
+    senseTrie = Trie()
     assert not possibleSensesMap
-    assert not senseMap
     assert not senseCountMap
     
     nounFile = _options.setdefault("nounFile","../data/oldgaz/NOUNS_WS_SS_P.gz")
@@ -484,5 +584,14 @@ def _addMostFrequentSense(phrase, simplePOS, sense, numSenses):
     '''
     Store the most frequent sense and its count.
     '''
-    senseMap.setdefault(simplePOS, {})[phrase] = intern(sense)  # TODO: more interning?
+    if phrase not in senseTrie:
+        senseTrie[phrase] = {simplePOS: intern(sense)}
+    else:
+        senseTrie.get(phrase)[simplePOS] = intern(sense)
+    
     senseCountMap.setdefault(simplePOS, {})[phrase] = numSenses
+
+
+if __name__=='__main__':
+    import doctest
+    doctest.testmod()
