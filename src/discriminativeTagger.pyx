@@ -1,10 +1,14 @@
+# cython: profile=True
 '''
 Created on Jul 24, 2012
 
 @author: Nathan Schneider (nschneid)
 '''
 from __future__ import print_function, division
-import sys, codecs, random
+import sys, codecs, random, operator
+
+cimport cython
+from cython.view cimport array as cvarray
 
 from labeledSentence import LabeledSentence
 import supersenseFeatureExtractor, morph
@@ -16,9 +20,10 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels):
+    def __init__(self, path, labels, keep_in_memory=True):
         self._path = path
         self._labels = labels
+        self._cache = [] if keep_in_memory else None
         self.open_file()
     
     def close_file(self):
@@ -38,7 +43,11 @@ class SupersenseDataSet(DataSet):
         (as in CoNLL data), which can be created from the SST data with 
         a short perl script. 
         '''
-        if True:
+        if self._f.closed:
+            assert self._cache
+            for sent in self._cache:
+                yield sent
+        else:
             sent = LabeledSentence()
             for ln in self._f:
                 if not ln.strip():
@@ -59,12 +68,183 @@ class SupersenseDataSet(DataSet):
                 sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
                 
             if len(sent)>0:
+                if self._cache is not None:
+                    self._cache.append(sent)
                 yield sent
                 
             if autoreset:
                 self.close_file()
-                self.open_file()
+                if self._cache is None:
+                    self.open_file()
 
+
+class SupersenseFeaturizer(object):
+    
+    def __init__(self, dataset, indexes, cache_features=True):
+        self._data = dataset
+        self._featureIndexes = indexes
+        self._features = [] if cache_features else None
+        # TODO: For now, try caching just the lifted 0-order features.
+    
+    def __iter__(self):
+        for j,sent in enumerate(self._data):
+            if self._features is None or j>=len(self._features):  # not yet in cache
+                o0FeatsEachToken = []
+                
+                for i in range(len(sent)):
+                    # zero-order features (lifted)
+                    o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
+                    
+                    if not o0FeatureMap:
+                        raise Exception('No 0-order features found for this token')
+                    
+                    o0FeatsEachToken.append(o0FeatureMap)
+                    
+                if self._features is not None:
+                    self._features.append(o0FeatsEachToken)
+                
+                yield sent,o0FeatsEachToken
+            else:
+                yield sent,self._features[j]
+                
+@cython.profile(False)
+cdef inline int _ground(int liftedFeatureIndex, int labelIndex, object indexer):
+        return liftedFeatureIndex + labelIndex*len(indexer)
+
+cdef float _score(object featureMap, object weights, int labelIndex, object indexer):
+        '''Compute the dot product of a set of feature values and the corresponding weights.'''
+        if labelIndex==-1:
+            return 0.0
+        
+        dotProduct = 0.0
+        for h,v in featureMap.items():
+            dotProduct += weights[_ground(h, labelIndex, indexer)]*v
+        return dotProduct
+
+def legalTagBigram(lbl1, lbl2, useBIO=False):
+        '''
+        For use in decoding. If useBIO is true, valid bigrams include
+          B        I
+          B-class1 I-class1
+          I-class1 I-class1
+          O        B-class1
+          I-class1 O
+        and invalid bigrams include
+          B-class1 I-class2
+          O        I-class2
+          O        I
+          B        I-class2
+        where 'class1' and 'class2' are names of chunk classes.
+        If useBIO is false, no constraint is applied--all tag bigrams are 
+        considered legal.
+        For the first token in the sequence, lbl1 should be null.
+        '''
+        if useBIO and lbl2[0]=='I':
+            if lbl1 is None or lbl1=='O':
+                return False    # disallow O followed by an I tag
+            if (len(lbl1)>1)!=(len(lbl2)>1):
+                return False    # only allow I without class if previous tag has no class
+            if len(lbl2)>1 and lbl1[2:]!=lbl2[2:]:
+                return False    # disallow an I tag following a tag with a different class
+        return True
+
+cdef _viterbi(sent, o0Feats, float[:] weights, 
+              float[:, :] dpValues, int[:, :] dpBackPointers, 
+              labels, featureIndexes, o1FeatWeights, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+        '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
+        under the current weight vector. Updates the predicted labels in 'sent'. 
+        Used in both training and testing.'''
+        
+        
+        hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
+        
+        cdef int nTokens, i, k, l, maxIndex
+        cdef float score, score0, maxScore
+        
+        nTokens = len(sent)
+        
+            
+        prevLabel = None
+        
+        #cdef int i, l, k, maxIndex
+        #cdef float score, score0, maxScore
+        
+        for i, tok in enumerate(sent):
+            sent[i] = tok._replace(prediction=None)
+        
+        for i in range(nTokens):
+            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
+            o0FeatureMap = o0Feats[i]
+            
+            for l,label in enumerate(labels):
+                maxScore = float('-inf')
+                maxIndex = -1
+                
+                # score for zero-order features
+                score0 = _score(o0FeatureMap, weights, l, featureIndexes)
+                
+                # cost-augmented decoding
+                if label!=sent[i].gold:
+                    if includeLossTerm:
+                        score0 += 1.0   # base cost of any error
+                    if label=='O':
+                        score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
+                
+                # consider each possible previous label
+                for k,prevLabel in enumerate(labels):
+                    if not legalTagBigram(None if i==0 else prevLabel, label, useBIO):
+                        continue
+                    
+                    # compute correct score based on previous scores
+                    score = 0.0
+                    if i>0:
+                        #sent[i-1] = sent[i-1]._replace(prediction=prevLabel)
+                        score = dpValues[i-1,k]
+                    
+                    # the score for the previou label is added on separately here,
+                    # in order to avoid computing the whole score--which only 
+                    # depends on the previous label for one feature--a quadratic 
+                    # number of times
+                    # TODO: plus vs. times doesn't matter here, right? use plus to avoid numeric overflow
+                    
+                    # score of moving from label k at the previous position to the current position (i) and label (l)
+                    score += score0
+                    if hasFOF and i>0:
+                        '''
+                        o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
+                        for h,v in o1FeatureMap.items():
+                            score += weights[self.getGroundedFeatureIndex(h, l)]*v
+                        '''
+                        # TODO: generalize this to allow other kinds of first-order features?
+                        if k not in o1FeatWeights[l]:
+                            o1FeatWeights[l][k] = weights[_ground(featureIndexes[('prevLabel=',prevLabel)], l, featureIndexes)]
+                        score += o1FeatWeights[l][k]
+                        
+                    # find the max of the combined score at the current position
+                    # and store the backpointer accordingly
+                    if score>maxScore:
+                        maxScore = score
+                        maxIndex = k
+                    
+                    # if this is the first token, there is only one possible 
+                    # previous label
+                    if i==0:
+                        break
+                    
+                dpValues[i,l] = maxScore
+                dpBackPointers[i,l] = maxIndex
+        
+        # decode from the lattice
+        # extract predictions from backpointers
+        
+        # first, find the best label for the last token
+        maxIndex, maxScore = max(enumerate(dpValues[nTokens-1]), key=operator.itemgetter(1))
+        
+        # now proceed backwards, following backpointers
+        for i in range(nTokens-1,-1,-1):
+            sent[i] = sent[i]._replace(prediction=labels[maxIndex])
+            maxIndex = dpBackPointers[i,maxIndex]
+        
 
 class DiscriminativeTagger(object):
     def __init__(self):
@@ -148,12 +328,13 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, currentWeights, timestep, runningAverageWeights):
+    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
         vector for the predicted label.
-        @param sent: the sentence
+        @param sent: the sentence, including gold and predicted tags
+        @param o0Feats: active lifted zero-order features for each token
         @param currentWeights: latest value of the parameter value
         @param timestamp: number of previou updates that have been applied
         @param runningAverageWeights: average of the 'timestamp' previous weight vectors
@@ -164,18 +345,20 @@ class DiscriminativeTagger(object):
         
         updates = set()
         
-        for i in range(len(sent)):
-            pred = self._labels.index(sent[i].prediction)
-            gold = self._labels.index(sent[i].gold)
+        cdef int featIndex
+        
+        for i,(tkn,o0FeatureMap) in enumerate(zip(sent, o0Feats)):
+            pred = self._labels.index(tkn.prediction)
+            gold = self._labels.index(tkn.gold)
             
             if pred==gold: continue # TODO: is this correct if we are being cost-augmented?
             
             # update gold label feature weights
             
             # zero-order features
-            o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
+            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
-                featIndex = self.getGroundedFeatureIndex(h, gold)
+                featIndex = _ground(h, gold, self._featureIndexes)
                 currentWeights[featIndex] += v
                 updates.add(featIndex)
                 
@@ -183,7 +366,7 @@ class DiscriminativeTagger(object):
             if supersenseFeatureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
-                    featIndex = self.getGroundedFeatureIndex(h, gold)
+                    featIndex = _ground(h, gold, self._featureIndexes)
                     currentWeights[featIndex] += v
                     updates.add(featIndex)
             
@@ -194,9 +377,9 @@ class DiscriminativeTagger(object):
             # update predicted label feature weights
             
             # zero-order features
-            o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
+            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
-                featIndex = self.getGroundedFeatureIndex(h, pred)
+                featIndex = _ground(h, pred, self._featureIndexes)
                 currentWeights[featIndex] -= v
                 updates.add(featIndex)
                 
@@ -204,7 +387,7 @@ class DiscriminativeTagger(object):
             if supersenseFeatureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
-                    featIndex = self.getGroundedFeatureIndex(h, pred)
+                    featIndex = _ground(h, pred, self._featureIndexes)
                     currentWeights[featIndex] -= v
                     updates.add(featIndex)
             
@@ -216,7 +399,7 @@ class DiscriminativeTagger(object):
             
         return len(updates)
     
-    def _createFeatures(self, sentIndices=slice(0,2000)):
+    def _createFeatures(self, sentIndices=slice(0,1000)):
         '''Before training, loop through the training data once 
         to instantiate all possible features, and create the weight 
         vector'''
@@ -236,9 +419,12 @@ class DiscriminativeTagger(object):
                 
         # instantiate the rest of the features
         ORDERS0 = {0}
-        for nSent,sent in enumerate(self._trainingData):
+        for nSent,sentAndFeats in enumerate(self._trainingData):
             if nSent<sentIndices.start: continue
             if nSent>sentIndices.stop: break
+            
+            # SupersenseFeaturizer will index new zero-order features as they are encountered
+            """
             for i in range(len(sent)):
                 # will index new features as they are encountered
                 supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders=ORDERS0, indexer=self._featureIndexes)
@@ -247,14 +433,15 @@ class DiscriminativeTagger(object):
                     # TODO: first-order features handled above, so zero-order only here
                     self._featureIndexes.add(h)
                 '''
+            """
             
             if nSent%1000==0:
                 print('.', file=sys.stderr, end='')
             elif nSent%100==0:
                 print(',', file=sys.stderr, end='')
         
-        self._trainingData.close_file()
-        self._trainingData.open_file()
+        self._trainingData._data.close_file()
+        self._trainingData._data.open_file()
         
         # now create the array of feature weights
         nWeights = len(self._labels)*len(self._featureIndexes)
@@ -301,91 +488,23 @@ class DiscriminativeTagger(object):
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
-    def _viterbi(self, sent, weights, dpValues, dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
-        '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
-        under the current weight vector. Updates the predicted labels in 'sent'. 
-        Used in both training and testing.'''
+    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValues, int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
         nTokens = len(sent)
         
         # expand the size of dynamic programming tables if necessary
         if len(dpValues)<nTokens:
-            dpValues = [[0.0]*(nTokens*1.5) for t in range(len(self._labels))]
-            dpBackPointers = [[0]*(nTokens*1.5) for t in range(len(self._labels))]
+            #dpValues = [[0.0]*len(self._labels) for t in range(nTokens*1.5)]
+            #dpBackPointers = [[0]*len(self._labels) for t in range(nTokens*1.5)]
             
-        prevLabel = None
-        
-        for i, tok in enumerate(sent):
-            sent[i] = tok._replace(prediction=None)
-        
-        for i in range(nTokens):
-            o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
+            dpValues = cvarray(shape=(nTokens*1.5, len(self._labels)), itemsize=sizeof(float), format='f')
+            dpBackPointers = cvarray(shape=(nTokens*1.5, len(self._labels)), itemsize=sizeof(int), format='i')
             
-            for l,label in enumerate(self._labels):
-                maxScore = float('-inf')
-                maxIndex = -1
-                
-                # score for zero-order features
-                score0 = self._computeScore(o0FeatureMap, weights, l)
-                
-                # cost-augmented decoding
-                if label!=sent[i].gold:
-                    if includeLossTerm:
-                        score0 += 1.0   # base cost of any error
-                    if label=='O':
-                        score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
-
-                # consider each possible previous label
-                for k,prevLabel in enumerate(self._labels):
-                    if not self.legalTagBigram(None if i==0 else prevLabel, label, useBIO):
-                        continue
-                    
-                    # compute correct score based on previou scores
-                    score = 0.0
-                    if i>0:
-                        sent[i-1] = sent[i-1]._replace(prediction=prevLabel)
-                        score = dpValues[i-1][k]
-                    
-                    # the score for the previou label is added on separately here,
-                    # in order to avoid computing the whole score--which only 
-                    # depends on the previous label for one feature--a quadratic 
-                    # number of times
-                    # TODO: plus vs. times doesn't matter here, right? use plus to avoid numeric overflow
-                    
-                    # score of moving from label k at the previous position to the current position (i) and label (l)
-                    score += score0
-                    if supersenseFeatureExtractor.hasFirstOrderFeatures() and i>0:
-                        o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
-                        for h,v in o1FeatureMap.items():
-                            score += weights[self.getGroundedFeatureIndex(h, l)]*v
-                            
-                    # find the max of the combined score at the current position
-                    # and store the backpointer accordingly
-                    if score>maxScore:
-                        maxScore = score
-                        maxIndex = k
-                    
-                    # if this is the first token, there is only one possible 
-                    # previous label
-                    if i==0:
-                        break
-                    
-                dpValues[i][l] = maxScore
-                dpBackPointers[i][l] = maxIndex
-        
-        # decode from the lattice
-        # extract predictions from backpointers
-        
-        # first, find the best label for the last token
-        maxIndex, maxScore = max(enumerate(dpValues[nTokens-1]), key=lambda x: x[1])
-        
-        # now proceed backwards, following backpointers
-        for i in range(nTokens-1,-1,-1):
-            sent[i] = sent[i]._replace(prediction=self._labels[maxIndex])
-            maxIndex = dpBackPointers[i][maxIndex]
+        o1FeatWeights = {l: {} for l in range(len(self._labels))}   # {current label -> {prev label -> weight}}
+            
+        _viterbi(sent, o0Feats, weights, dpValues, dpBackPointers, self._labels, self._featureIndexes, o1FeatWeights, includeLossTerm, costAugVal, useBIO)
     
-    
-    def train(self, savePrefix, averaging=False, maxIters=5, developmentMode=False, maxInstances=10):
+    def train(self, savePrefix, averaging=False, maxIters=5, developmentMode=False, maxInstances=100):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
         assert self._trainingData
@@ -395,8 +514,12 @@ class DiscriminativeTagger(object):
         # create DP tables
         MAX_NUM_TOKENS = 200
         nLabels = len(self._labels)
-        dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
-        dpBackPointers = [[0]*nLabels for t in range(MAX_NUM_TOKENS)]
+        #dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
+        #dpBackPointers = [[0]*nLabels for t in range(MAX_NUM_TOKENS)]
+        
+        dpValues = cvarray(shape=(MAX_NUM_TOKENS, len(self._labels)), itemsize=sizeof(float), format='f')
+        dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, len(self._labels)), itemsize=sizeof(int), format='i')
+            
         
         self._createFeatures()
         nWeights = len(self._labels)*len(self._featureIndexes)
@@ -404,8 +527,10 @@ class DiscriminativeTagger(object):
         print('training data type:', type(self._trainingData), file=sys.stderr)
         
         # finalWeights will contain a running average of the currentWeights vectors at all timesteps
-        finalWeights = [0.0]*nWeights
-        currentWeights = [0.0]*nWeights
+        #finalWeights = [0.0]*nWeights
+        #currentWeights = [0.0]*nWeights
+        finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        currentWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         
         # tabulate accuracy at every 500 iterations
         nWordsProcessed = 0
@@ -425,9 +550,9 @@ class DiscriminativeTagger(object):
             
             nWeightUpdates = 0
             
-            for sent in self._trainingData:
-                self._viterbi(sent, currentWeights, dpValues, dpBackPointers)
-                nWeightUpdates += self._perceptronUpdate(sent, currentWeights, totalInstancesProcessed, finalWeights)
+            for sent,o0Feats in self._trainingData:
+                self._viterbi(sent, o0Feats, currentWeights, dpValues, dpBackPointers)
+                nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights)
                 # will update currentWeights as well as running average in finalWeights
                 
                 for i in range(len(sent)):
@@ -435,12 +560,14 @@ class DiscriminativeTagger(object):
                         nWordsIncorrect += 1
                 nWordsProcessed += len(sent)
                 totalInstancesProcessed += 1
-                print(',', end='', file=sys.stderr)
+                #print(',', end='', file=sys.stderr)
                 
                 if totalInstancesProcessed%500==0:
                     print('totalInstancesProcessed = ',totalInstancesProcessed, file=sys.stderr)
-                    print('pct. correct words in last 500 inst.: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed))
+                    print('pct. correct words in last 500 inst.: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
                     nWordsIncorrect = nWordsProcessed = 0
+                elif totalInstancesProcessed%10==0:
+                    print('.', file=sys.stderr, end='')
                 
                 if totalInstancesProcessed==maxInstances:
                     break
@@ -483,8 +610,8 @@ class DiscriminativeTagger(object):
         '''
         if self._testData is None: return
         
-        for sent in self._testData:
-            self._viterbi(sent, weights, dpValues, dpBackPointers, includeLossTerm, costAugVal, useBIO)
+        for sent,o0Feats in self._testData:
+            self._viterbi(sent, o0Feats, weights, dpValues, dpBackPointers, includeLossTerm, costAugVal, useBIO)
         
         self.evaluatePredictions(self._testData, self._labels);
         '''
@@ -542,18 +669,18 @@ def main():
         #t.setBinaryFeats(False)
         labels = DiscriminativeTagger.loadLabelList(args.labels)
         t._labels = labels  # TODO: "private" access
-        t._labels = ['0', 'B-noun.person', 'I-noun.person']  # TODO: debugging purposes
+        #t._labels = ['0', 'B-noun.person', 'I-noun.person']  # TODO: debugging purposes
         
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
-            data = SupersenseDataSet(args.train, t._labels)
+            data = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels), t._featureIndexes, cache_features=True)
             t._trainingData = data  # TODO: "private" access
         else:
             raise NotImplemented()
         
     if args.test is not None:
         #data = DiscriminativeTagger.loadSuperSenseData(args.test, t.getLabels())
-        data = SupersenseDataSet(args.test, t._labels)
+        data = SupersenseFeaturizer(SupersenseDataSet(args.test, t._labels), t._featureIndexes, cache_features=False)
         t.setTestData(data)
     if args.load is None:
         t._weights = t.train(args.save, maxIters=args.iters, developmentMode=args.debug)
@@ -570,5 +697,7 @@ def main():
 if __name__=='__main__':
     #import cProfile
     #cProfile.run('main()')
-    main()
- 
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise
