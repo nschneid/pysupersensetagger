@@ -60,10 +60,11 @@ import fileinput, glob
 import hashlib, random
 
 if __name__ == "__main__" and __package__ is None:
-    sys.path.append(os.path.dirname(__file__)+'/../../../../../../..')
-
-from edu.cmu.cs.lti.ark.pyutil.dataformats import inlinetag
-from edu.cmu.cs.lti.ark.pyutil.ds.set import OrderedSet
+    import inlinetag
+    from ds.set import OrderedSet
+else:
+    from . import inlinetag
+    from ..ds.set import OrderedSet
 
 def uniquify(elts):
     return [elt for elt in OrderedSet(elts)]
