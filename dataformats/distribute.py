@@ -61,6 +61,7 @@ import hashlib, random
 
 if __name__ == "__main__" and __package__ is None:
     import inlinetag
+    sys.path.append(os.path.split(os.path.dirname(__file__))[0])
     from ds.set import OrderedSet
 else:
     from . import inlinetag
@@ -89,7 +90,7 @@ def intNonneg(s):
 
 def intPositive(s):
     v = int(s)
-    assert v>0
+    assert v>0,v
     return v
 
 def finite(v):
@@ -127,7 +128,7 @@ parser.add_argument('--stop', type=int, help="Upper offset bound of the items to
 
 parser.add_argument('--prefix', default='batch', help="string prefixed to the batch offset in the batch name (default: '%(default)s')")
 parser.add_argument('--suffix', default='', help="string suffixed to the batch offset in the batch name (but before the file extension) (default: '%(default)s')")
-parser.add_argument('--batch-start', type=intPositive, help='offset of the first batch being allocated. By default, it is determined automatically based on the greatest offset of similar batch files in the current directory.')
+parser.add_argument('--batch-start', type=intNonneg, help='offset of the first batch being allocated. By default, it is determined automatically based on the greatest offset of similar batch files in the current directory.')
 parser.add_argument('--batch-width', type=intPositive, default=3, help="minimum number of digits to include in the batch number (padded with leading zeros) (default: %(default)s)")
 parser.add_argument('--batch-radix', type=intPositive, default=1, help="value of which the starting batch offset must be a multiple (default: %(default)s)")
 parser.add_argument('--overwrite', action='store_true', help="resolve any batch name conflicts by overwriting existing batch files")
@@ -193,6 +194,7 @@ def items():
     s = None
     matchedFiles = []
     if args.inputFile:
+        print('input file:',args.inputFile, file=sys.stderr)
         for ptn in args.inputFile:
             pp = glob.glob(ptn)
             if len(pp)==0:
@@ -377,7 +379,7 @@ batchStart = args.batch_start
 
 # - Find the maximum batch number already in use
 similars = glob.glob(batchNamePattern.format('*')+'.txt')
-x = 0
+x = -1
 for similar in similars:
     m = re.match(re.escape(args.prefix)+r'(\d+)'+re.escape(args.suffix)+r'[.]txt$', similar)
     if m:
@@ -385,10 +387,10 @@ for similar in similars:
         if y>x: x = y
 
 # - Determine what the next number should be
-if not batchStart:
+if batchStart is None:
     batchStart = (x//args.batch_radix+1)*args.batch_radix
 elif not args.overwrite:
-    assert x<batchStart, '--batch-start {} specified, but higher-numbered batches already exist (use --overwrite to replace them)'.format(args.batch_size)
+    assert x<batchStart, '--batch-start {} specified, but higher-numbered batches already exist in {} (use --overwrite to replace them)'.format(args.batch_start, os.getcwd())
 # TODO: relax the above restriction so that it's only an error if there would actually be an overwrite? we know nBatches by now
 assert batchStart % args.batch_radix==0, 'conflicting options: --batch-radix {} and --batch-start {} (when both are specified, --batch-start must be a multiple of --batch-radix)'.format(args.batch_radix, args.batch_start)
 
