@@ -13,112 +13,23 @@ from cython.view cimport array as cvarray
 from labeledSentence import LabeledSentence
 import supersenseFeatureExtractor, morph
 
-class DataSet(object):
-    def __init__(self, f):
-        self._file = f
-    def __iter__(self):
-        return 
+from dataFeaturizer import SupersenseDataSet, SupersenseFeaturizer
 
-class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, keep_in_memory=True):
-        self._path = path
-        self._labels = labels
-        self._cache = [] if keep_in_memory else None
-        self.open_file()
-    
-    def close_file(self):
-        self._f.close()
-    
-    def open_file(self):
-        self._f = codecs.open(self._path, 'r', 'utf-8')
-    
-    def __iter__(self, autoreset=True):
-        '''
-        Load the BIO tagged supersense data from Semcor, as provided in 
-        the SuperSenseTagger release (SEM_07.BI).
-        We also use their POS labels, which presumably were what their 
-        paper used.
-        One difference is that this method expects the data to be converted 
-        into a 3-column format with an extra newline between each sentence 
-        (as in CoNLL data), which can be created from the SST data with 
-        a short perl script. 
-        '''
-        if self._f.closed:
-            assert self._cache
-            for sent in self._cache:
-                yield sent
-        else:
-            sent = LabeledSentence()
-            for ln in self._f:
-                if not ln.strip():
-                    if len(sent)>0:
-                        yield sent
-                        sent = LabeledSentence()
-                    continue
-                parts = ln[:-1].split('\t')
-                if len(parts)>3:
-                    if parts[3]!='':
-                        sent.articleId = parts[3]
-                    parts = parts[:3]
-                token, pos, label = parts
-                label = DiscriminativeTagger.removeExtraLabels(label, self._labels)
-                label = intern(str(label))
-                pos = intern(str(pos))
-                stemS = morph.stem(token,pos)
-                sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
-                
-            if len(sent)>0:
-                if self._cache is not None:
-                    self._cache.append(sent)
-                yield sent
-                
-            if autoreset:
-                self.close_file()
-                if self._cache is None:
-                    self.open_file()
-
-
-class SupersenseFeaturizer(object):
-    
-    def __init__(self, dataset, indexes, cache_features=True):
-        self._data = dataset
-        self._featureIndexes = indexes
-        self._features = [] if cache_features else None
-        # TODO: For now, try caching just the lifted 0-order features.
-    
-    def __iter__(self):
-        for j,sent in enumerate(self._data):
-            if self._features is None or j>=len(self._features):  # not yet in cache
-                o0FeatsEachToken = []
-                
-                for i in range(len(sent)):
-                    # zero-order features (lifted)
-                    o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
-                    
-                    if not o0FeatureMap:
-                        raise Exception('No 0-order features found for this token')
-                    
-                    o0FeatsEachToken.append(o0FeatureMap)
-                    
-                if self._features is not None:
-                    self._features.append(o0FeatsEachToken)
-                
-                yield sent,o0FeatsEachToken
-            else:
-                yield sent,self._features[j]
-                
 @cython.profile(False)
-cdef inline int _ground(int liftedFeatureIndex, int labelIndex, object indexer):
-        return liftedFeatureIndex + labelIndex*len(indexer)
+cdef inline int _ground0(int liftedFeatureIndex, int labelIndex, int numFeatures):
+    return liftedFeatureIndex + labelIndex*numFeatures
 
-cdef float _score(object featureMap, object weights, int labelIndex, object indexer):
+cdef inline int _ground(int liftedFeatureIndex, int labelIndex, object indexer):
+    return _ground0(liftedFeatureIndex, labelIndex, len(indexer))
+
+cdef float _score(object featureMap, float[:] weights, int labelIndex, int indexerSize):
         '''Compute the dot product of a set of feature values and the corresponding weights.'''
         if labelIndex==-1:
             return 0.0
         
         dotProduct = 0.0
         for h,v in featureMap.items():
-            dotProduct += weights[_ground(h, labelIndex, indexer)]*v
+            dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
 def legalTagBigram(lbl1, lbl2, useBIO=False):
@@ -148,19 +59,22 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
                 return False    # disallow an I tag following a tag with a different class
         return True
 
-cdef _viterbi(sent, o0Feats, float[:] weights, 
+cdef c_viterbi(sent, o0Feats, float[:] weights, 
               float[:, :] dpValues, int[:, :] dpBackPointers, 
               labels, featureIndexes, o1FeatWeights, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
         under the current weight vector. Updates the predicted labels in 'sent'. 
         Used in both training and testing.'''
         
+        indexerSize = len(featureIndexes)
+        
         
         hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
         
         cdef int nTokens, i, k, l, maxIndex
-        cdef float score, score0, maxScore
+        cdef float score, score0, maxScore, NEGINF
         
+        NEGINF = float('-inf')
         nTokens = len(sent)
         
             
@@ -177,11 +91,11 @@ cdef _viterbi(sent, o0Feats, float[:] weights,
             o0FeatureMap = o0Feats[i]
             
             for l,label in enumerate(labels):
-                maxScore = float('-inf')
+                maxScore = NEGINF
                 maxIndex = -1
                 
                 # score for zero-order features
-                score0 = _score(o0FeatureMap, weights, l, featureIndexes)
+                score0 = _score(o0FeatureMap, weights, l, indexerSize)
                 
                 # cost-augmented decoding
                 if label!=sent[i].gold:
@@ -217,7 +131,7 @@ cdef _viterbi(sent, o0Feats, float[:] weights,
                         '''
                         # TODO: generalize this to allow other kinds of first-order features?
                         if k not in o1FeatWeights[l]:
-                            o1FeatWeights[l][k] = weights[_ground(featureIndexes[('prevLabel=',prevLabel)], l, featureIndexes)]
+                            o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
                         score += o1FeatWeights[l][k]
                         
                     # find the max of the combined score at the current position
@@ -313,13 +227,15 @@ class DiscriminativeTagger(object):
         
         return res
     
-    def printWeights(self):
+    def printWeights(self, out, weights=None):
+        if weights is None:
+            weights = self._weights
         for index,fname in sorted(self._featureIndexes.items(), key=lambda x: x[1]):
             for i,label in enumerate(self._labels):
-                value = self._weights[i*len(self._featureIndexes)+index]
+                value = weights[i*len(self._featureIndexes)+index]
                 if value!=0.0:
-                    print(label, fname, value, sep='\t')
-            print()
+                    print(label, fname, value, sep='\t', file=out)
+            print(file=out)
             
     def tagStandardInput(self):
         # TODO: this depends on MaxentTagger from the Stanford tools for decoding
@@ -399,7 +315,7 @@ class DiscriminativeTagger(object):
             
         return len(updates)
     
-    def _createFeatures(self, sentIndices=slice(0,1000)):
+    def _createFeatures(self, sentIndices=slice(0,100)):
         '''Before training, loop through the training data once 
         to instantiate all possible features, and create the weight 
         vector'''
@@ -440,8 +356,8 @@ class DiscriminativeTagger(object):
             elif nSent%100==0:
                 print(',', file=sys.stderr, end='')
         
-        self._trainingData._data.close_file()
-        self._trainingData._data.open_file()
+        self._trainingData.reset()
+        
         
         # now create the array of feature weights
         nWeights = len(self._labels)*len(self._featureIndexes)
@@ -502,9 +418,9 @@ class DiscriminativeTagger(object):
             
         o1FeatWeights = {l: {} for l in range(len(self._labels))}   # {current label -> {prev label -> weight}}
             
-        _viterbi(sent, o0Feats, weights, dpValues, dpBackPointers, self._labels, self._featureIndexes, o1FeatWeights, includeLossTerm, costAugVal, useBIO)
+        c_viterbi(sent, o0Feats, weights, dpValues, dpBackPointers, self._labels, self._featureIndexes, o1FeatWeights, includeLossTerm, costAugVal, useBIO)
     
-    def train(self, savePrefix, averaging=False, maxIters=5, developmentMode=False, maxInstances=100):
+    def train(self, savePrefix, averaging=False, maxIters=5, developmentMode=False):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
         assert self._trainingData
@@ -550,7 +466,7 @@ class DiscriminativeTagger(object):
             
             nWeightUpdates = 0
             
-            for sent,o0Feats in self._trainingData:
+            for sent,o0Feats in self._trainingData: # to limit the number of instances, see _createFeatures()
                 self._viterbi(sent, o0Feats, currentWeights, dpValues, dpBackPointers)
                 nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights)
                 # will update currentWeights as well as running average in finalWeights
@@ -568,10 +484,7 @@ class DiscriminativeTagger(object):
                     nWordsIncorrect = nWordsProcessed = 0
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
-                
-                if totalInstancesProcessed==maxInstances:
-                    break
-                
+            
             if developmentMode:
                 #self.test()
                 
@@ -603,8 +516,9 @@ class DiscriminativeTagger(object):
             print(''.join(fname), file=out)
     
     def saveModel(self, savePrefix):
-        raise NotImplemented()
-    
+        #raise NotImplemented()
+        pass
+        
     def test(self, weights):
         raise NotImplemented()
         '''
