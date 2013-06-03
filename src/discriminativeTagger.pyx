@@ -1,4 +1,5 @@
 # cython: profile=True
+# cython: infer_types=True
 '''
 Created on Jul 24, 2012
 
