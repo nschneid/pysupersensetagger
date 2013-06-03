@@ -145,6 +145,7 @@ class SequentialStringIndexer(object):
         self._frozen = False
     def freeze(self):
         self._frozen = True
+        self._len = len(self._i2s)  # cache the length for efficiency
     def unfreeze(self):
         self._frozen = False
     def is_frozen(self):
@@ -175,7 +176,7 @@ class SequentialStringIndexer(object):
         self.add(k)
         return self[k]
     def __len__(self):
-        return len(self._i2s)
+        return self._len if self.is_frozen() else len(self._i2s)
     @property
     def strings(self):
         return self._i2s
