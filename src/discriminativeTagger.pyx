@@ -359,7 +359,7 @@ class DiscriminativeTagger(object):
         ORDERS0 = {0}
         for nSent,sentAndFeats in enumerate(trainingData):
             if nSent<sentIndices.start: continue
-            if nSent>sentIndices.stop: break
+            if sentIndices.stop is not None and nSent>sentIndices.stop: break
             
             # SupersenseFeaturizer will index new zero-order features as they are encountered
             """
