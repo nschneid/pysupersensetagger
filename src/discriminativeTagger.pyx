@@ -527,7 +527,6 @@ class DiscriminativeTagger(object):
                     print(' '.join(tkn.prediction for tkn in sent), file=sys.stderr)
                 
                 if totalInstancesProcessed%100==0:
-                    print((finalWeights[0],finalWeights[1],finalWeights[2]),file=sys.stderr)
                     print('totalInstancesProcessed = ',totalInstancesProcessed, file=sys.stderr)
                     print('pct. correct words in last 100 inst.: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
                     nWordsIncorrect = nWordsProcessed = 0
