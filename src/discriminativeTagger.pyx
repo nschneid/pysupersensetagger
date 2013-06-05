@@ -17,6 +17,22 @@ import supersenseFeatureExtractor, morph
 
 from dataFeaturizer import SupersenseDataSet, SupersenseFeaturizer
 
+def memoize(f):
+    """
+    Memoization decorator for a function taking one or more arguments.
+    Source: http://code.activestate.com/recipes/578231-probably-the-fastest-memoization-decorator-in-the-/#c4 
+    """
+    class memodict(dict):
+        def __getitem__(self, *key):
+            return dict.__getitem__(self, key)
+
+        def __missing__(self, key):
+            ret = self[key] = f(*key)
+            return ret
+
+    return memodict().__getitem__
+
+
 @cython.profile(False)
 cdef inline int _ground0(int liftedFeatureIndex, int labelIndex, int numFeatures):
     return liftedFeatureIndex + labelIndex*numFeatures
@@ -34,6 +50,7 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
+@memoize
 def legalTagBigram(lbl1, lbl2, useBIO=False):
         '''
         For use in decoding. If useBIO is true, valid bigrams include
