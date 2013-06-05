@@ -233,6 +233,8 @@ class IndexedFeatureMap(object):
     def named_items(self):
         for i in self._set:
             yield (self._set._indexer[i], self._map.get(i, self._default))
+    def __repr__(self):
+        return 'IndexedFeatureMap(['+', '.join(map(repr,self.named_items()))+'])'
 
 
 
