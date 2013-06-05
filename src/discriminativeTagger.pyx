@@ -523,7 +523,7 @@ class DiscriminativeTagger(object):
                 totalInstancesProcessed += 1
                 #print(',', end='', file=sys.stderr)
                 
-                if isent==0:
+                if isent==0:    # print the tagging of the first sentence in the dataset
                     print(' '.join(tkn.prediction for tkn in sent), file=sys.stderr)
                 
                 if totalInstancesProcessed%100==0:
