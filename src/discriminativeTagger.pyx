@@ -231,9 +231,11 @@ class DiscriminativeTagger(object):
     def printWeights(self, out, weights=None):
         if weights is None:
             weights = self._weights
+        cdef int indexerSize, index, i
+        indexerSize = len(self._featureIndexes)
         for index,fname in sorted(self._featureIndexes.items(), key=lambda x: x[1]):
             for i,label in enumerate(self._labels):
-                value = weights[i*len(self._featureIndexes)+index]
+                value = weights[_ground0(index,i,indexerSize)]
                 if value!=0.0:
                     print(label, fname, value, sep='\t', file=out)
             print(file=out)
