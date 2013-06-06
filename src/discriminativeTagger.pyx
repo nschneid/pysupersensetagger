@@ -408,11 +408,11 @@ class DiscriminativeTagger(object):
         
         # expand the size of dynamic programming tables if necessary
         if len(dpValues)<nTokens:
-            #dpValues = [[0.0]*len(self._labels) for t in range(nTokens*1.5)]
-            #dpBackPointers = [[0]*len(self._labels) for t in range(nTokens*1.5)]
+            #dpValues = [[0.0]*len(self._labels) for t in range(int(nTokens*1.5))]
+            #dpBackPointers = [[0]*len(self._labels) for t in range(int(nTokens*1.5))]
             
-            dpValues = cvarray(shape=(nTokens*1.5, len(self._labels)), itemsize=sizeof(float), format='f')
-            dpBackPointers = cvarray(shape=(nTokens*1.5, len(self._labels)), itemsize=sizeof(int), format='i')
+            dpValues = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+            dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
             
         o1FeatWeights = {l: {} for l in range(len(self._labels))}   # {current label -> {prev label -> weight}}
             
