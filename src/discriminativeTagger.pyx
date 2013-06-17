@@ -50,6 +50,8 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
+#cdef float _scoreBound(float[:] weights, ):
+
 @memoize
 def legalTagBigram(lbl1, lbl2, useBIO=False):
         '''
@@ -80,13 +82,12 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
 
 cdef c_viterbi(sent, o0Feats, float[:] weights, 
               float[:, :] dpValues, int[:, :] dpBackPointers, 
-              labels, featureIndexes, o1FeatWeights, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+              labels, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
         under the current weight vector. Updates the predicted labels in 'sent'. 
         Used in both training and testing.'''
         
         indexerSize = len(featureIndexes)
-        
         
         hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
         
@@ -95,12 +96,11 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
         
         NEGINF = float('-inf')
         nTokens = len(sent)
+        nLabels = len(labels)
         
-            
+        o1FeatWeights = {l: {} for l in range(nLabels)}   # {current label -> {prev label -> weight}}
+        
         prevLabel = None
-        
-        #cdef int i, l, k, maxIndex
-        #cdef float score, score0, maxScore
         
         for i, tok in enumerate(sent):
             sent[i] = tok._replace(prediction=None)
@@ -110,6 +110,8 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
             o0FeatureMap = o0Feats[i]
             
             for l,label in enumerate(labels):
+                
+                # initialize stuff
                 maxScore = NEGINF
                 maxIndex = -1
                 
@@ -123,46 +125,45 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                     if label=='O':
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
-                # consider each possible previous label
-                for k,prevLabel in enumerate(labels):
-                    if not legalTagBigram(None if i==0 else prevLabel, label, useBIO):
-                        continue
-                    
-                    # compute correct score based on previous scores
-                    score = 0.0
-                    if i>0:
-                        #sent[i-1] = sent[i-1]._replace(prediction=prevLabel)
-                        score = dpValues[i-1,k]
-                    
-                    # the score for the previou label is added on separately here,
-                    # in order to avoid computing the whole score--which only 
-                    # depends on the previous label for one feature--a quadratic 
-                    # number of times
-                    # TODO: plus vs. times doesn't matter here, right? use plus to avoid numeric overflow
-                    
-                    # score of moving from label k at the previous position to the current position (i) and label (l)
-                    score += score0
-                    if hasFOF and i>0:
-                        '''
-                        o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
-                        for h,v in o1FeatureMap.items():
-                            score += weights[self.getGroundedFeatureIndex(h, l)]*v
-                        '''
-                        # TODO: generalize this to allow other kinds of first-order features?
-                        if k not in o1FeatWeights[l]:
-                            o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
-                        score += o1FeatWeights[l][k]
+                if i==0:
+                    score = score0
+                    if not legalTagBigram(None, label, useBIO):
+                        score = NEGINF
+                    maxScore = score
+                    maxIndex = 0    # doesn't matter--start of sequence
+                else:
+                    # consider each possible previous label
+                    for k,prevLabel in enumerate(labels):
+                        if not legalTagBigram(prevLabel, label, useBIO):
+                            continue
                         
-                    # find the max of the combined score at the current position
-                    # and store the backpointer accordingly
-                    if score>maxScore:
-                        maxScore = score
-                        maxIndex = k
-                    
-                    # if this is the first token, there is only one possible 
-                    # previous label
-                    if i==0:
-                        break
+                        # compute correct score based on previous scores
+                        score = dpValues[i-1,k]
+                        
+                        # the score for the previou label is added on separately here,
+                        # in order to avoid computing the whole score--which only 
+                        # depends on the previous label for one feature--a quadratic 
+                        # number of times
+                        # TODO: plus vs. times doesn't matter here, right? use plus to avoid numeric overflow
+                        
+                        # score of moving from label k at the previous position to the current position (i) and label (l)
+                        score += score0
+                        if hasFOF:
+                            '''
+                            o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
+                            for h,v in o1FeatureMap.items():
+                                score += weights[self.getGroundedFeatureIndex(h, l)]*v
+                            '''
+                            # TODO: generalize this to allow other kinds of first-order features?
+                            if k not in o1FeatWeights[l]:
+                                o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
+                            score += o1FeatWeights[l][k]
+                            
+                        # find the max of the combined score at the current position
+                        # and store the backpointer accordingly
+                        if score>maxScore:
+                            maxScore = score
+                            maxIndex = k
                     
                 dpValues[i,l] = maxScore
                 dpBackPointers[i,l] = maxIndex
@@ -174,10 +175,196 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
         maxIndex, maxScore = max(enumerate(dpValues[nTokens-1]), key=operator.itemgetter(1))
         
         # now proceed backwards, following backpointers
-        for i in range(nTokens-1,-1,-1):
+        for i in range(nTokens)[::-1]:
             sent[i] = sent[i]._replace(prediction=labels[maxIndex])
             maxIndex = dpBackPointers[i,maxIndex]
+
+
+cdef i_viterbi(sent, o0Feats, float[:] weights, 
+              float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, int[:, :] dpBackPointers, 
+              labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+        '''Uses the iterative Viterbi algorithm of Kaji et al. 2010 for staggered decoding (cf. Huang et al. 2012). 
+        With proper caching and pruning this is much faster than standard Viterbi. 
+        Updates the predicted labels in 'sent'. Used in both training and testing.'''
+                
+        indexerSize = len(featureIndexes)
         
+        
+        hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
+        
+        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc
+        cdef float score, score0, maxScore, INF, NEGINF, lower_bound
+        cdef float[:,:] dpValues
+        
+        INF = float('inf')
+        NEGINF = float('-inf')
+        nTokens = len(sent)
+        nLabels = len(labels)
+        
+        prevLabel = None
+        
+        for i, tok in enumerate(sent):
+            sent[i] = tok._replace(prediction=None)
+        
+        latticeColumnSize = [1]*len(sent)   # number of active labels for each token
+        
+        o0Scores = [[None]*nLabels for t in range(nTokens)]
+        o1FeatWeights = {1: {l: {} for l in range(nLabels)}, -1: {l: {} for l in range(nLabels)}}   # {direc -> {current label -> {prev label -> weight}}}
+        #pruned = [set() for t in range(nTokens)]
+        
+        lower_bound = NEGINF
+        
+        iterate = True
+        firstiter = True
+        direc = -1   # -1 for backward Viterbi, 1 for forward
+        while iterate: # iterations
+            iterate = False
+            direc = -direc
+            if direc==1:
+                dpValues = dpValuesFwd
+                print('(', end='', file=sys.stderr)
+            else:
+                dpValues = dpValuesBwd
+                print(')', end='', file=sys.stderr)
+            
+            dpValuesActive = [[None]*latticeColumnSize[q] for q in range(nTokens)]
+            
+            for i in range(nTokens)[::direc]:
+                o0FeatureMap = o0Feats[i]
+                
+                for l,lIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i]+1], [False]*latticeColumnSize[i]+[True]):
+                    #if not lIsCollapsed and l in pruned[i]: continue
+                    
+                    maxScore = NEGINF
+                    maxIndex = -1
+                    maxScoreActive = NEGINF
+                    
+                    # score for zero-order features
+                    score0s = []
+                    for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
+                        #if l2 in pruned[i]: continue
+                        
+                        if o0Scores[i][l2] is None:
+                            label = labels[l2]
+                            if i==0 and not legalTagBigram(None, label, useBIO):
+                                score0 = NEGINF
+                            else:
+                                score0 = _score(o0FeatureMap, weights, l2, indexerSize)
+                                # cost-augmented decoding
+                                if label!=sent[i].gold:
+                                    if includeLossTerm:
+                                        score0 += 1.0   # base cost of any error
+                                    if label=='O':
+                                        score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
+                                
+                            o0Scores[i][l2] = score0
+                        else:
+                            score0 = o0Scores[i][l2]
+                        
+                        score0s.append(score0)
+                    score0 = max(score0s) if score0s else NEGINF
+                    
+                    # consider each possible previous label
+                    if (direc==1 and i==0) or (direc==-1 and i==nTokens-1):
+                        maxScore = score = score0
+                        maxIndex = freqSortedLabelIndices[0]    # doesn't matter--start of path through lattice
+                        assert maxIndex>=0
+                        if not lIsCollapsed:
+                            maxScoreActive = maxScore
+                    else:
+                        for k,kIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i-direc]+1], [False]*latticeColumnSize[i-direc]+[True]):
+                            #if not kIsCollapsed and k in pruned[i-direc]: continue
+                            
+                            score1s = []
+                            for k2 in ([k] if not kIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i-direc]:]):
+                                #if k2 in pruned[i-direc]: continue
+                                
+                                kLabel = labels[k2]
+                                
+                                score1 = dpValues[i-direc,k2]
+                                # score of moving from label k at the previous position to the current position (i) and label (l)
+                                if hasFOF or useBIO:
+                                    # TODO: generalize this to allow other kinds of first-order features?
+                                    # (may require resorting to bounds for efficiency)
+                                    scores1b = []
+                                    for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
+                                        #if l2 in pruned[i]: continue
+                                        
+                                        if k2 not in o1FeatWeights[direc][l2]:
+                                            label = labels[l2]
+                                            if direc==1:
+                                                leftLabel, rightLabel = kLabel, label
+                                            else:
+                                                leftLabel, rightLabel = label, kLabel
+                                            o1FeatWeights[direc][l2][k2] = NEGINF if not legalTagBigram(leftLabel, rightLabel, useBIO) else 0.0
+                                            if hasFOF:
+                                                o1FeatWeights[direc][l2][k2] += weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], l2, indexerSize)]
+                                        scores1b.append(o1FeatWeights[direc][l2][k2])
+                                    score1s.append(score1 + max(scores1b) if scores1b else NEGINF)
+                                else:
+                                    score1s.append(score1)
+                            
+                            # compute correct score based on previous scores
+                            score = max(score1s) if score1s else NEGINF
+                            
+                            # the score for the previous label is added on separately here,
+                            # in order to avoid computing the whole score--which only 
+                            # depends on the previous label for one feature--a quadratic 
+                            # number of times
+                            # TODO: plus vs. times doesn't matter here, right? use plus to avoid numeric overflow
+                            
+                            score += score0
+                            
+                            
+                            # find the max of the combined score at the current position
+                            # and store the backpointer accordingly
+                            if score>maxScore:
+                                maxScore = score
+                                maxIndex = k
+                            if not lIsCollapsed and not kIsCollapsed:
+                                #assert k==freqSortedLabelIndices.index(k),(k,len(dpValuesActive[i-direc]),dpValuesActive[i-direc][k],freqSortedLabelIndices)   # ??
+                                scoreActive = dpValuesActive[i-direc][freqSortedLabelIndices.index(k)] + score0
+                                if hasFOF or useBIO:
+                                    scoreActive += o1FeatWeights[direc][l][k]
+                                if scoreActive>maxScoreActive:
+                                    maxScoreActive = scoreActive
+                            
+                    #assert maxIndex>=0,(maxIndex,direc,i,score0)
+                    dpValues[i,l] = maxScore
+                    dpBackPointers[i,l] = maxIndex
+                    if not lIsCollapsed:
+                        dpValuesActive[i][freqSortedLabelIndices.index(l)] = maxScoreActive
+                        # pruning
+                        #if not firstiter and dpValuesFwd[i,l]+dpValuesBwd[i,l]-score0 < lower_bound:
+                        #    print('prune',i,l, file=sys.stderr)
+                        #    pruned[i].add(l)
+            
+            # decode from the lattice
+            # extract predictions from backpointers
+            
+            # first, find the best label for the last token
+            maxIndex, maxScore = max([(q, dpValues[nTokens-1 if direc==1 else 0][q]) for q in freqSortedLabelIndices[:latticeColumnSize[nTokens-1 if direc==1 else 0]+1]], key=operator.itemgetter(1))
+            
+            # now proceed in the opposite direction, following backpointers
+            for i in range(nTokens)[::-direc]:
+                if latticeColumnSize[i]<nLabels and maxIndex==freqSortedLabelIndices[latticeColumnSize[i]]:    # best decoding uses a collapsed label at this position
+                    # column-wise expansion
+                    latticeColumnSize[i] = min(latticeColumnSize[i]*2, nLabels)
+                    iterate = True
+                else:   # best decoding uses an active label at this position
+                    sent[i] = sent[i]._replace(prediction=labels[maxIndex])
+                
+                assert maxIndex>=0,(maxIndex,direc,i)
+                maxIndex = dpBackPointers[i,maxIndex]
+            
+            lower_bound = max(dpValuesActive[nTokens-1 if direc==1 else 0])
+            if iterate:
+                # calculate lower bound by decoding using only active labels
+                assert lower_bound<=maxScore,(lower_bound,maxScore)
+            else:
+                assert lower_bound==maxScore
+            
+            firstiter = False
 
 class DiscriminativeTagger(object):
     def __init__(self):
@@ -390,6 +577,9 @@ class DiscriminativeTagger(object):
         print(' done with',nSent,'sentences:',len(self._labels),'labels,',len(self._featureIndexes),'lifted features, size',nWeights,'weight vector', file=sys.stderr)
         print('label counts:',self._labelC, file=sys.stderr)
         
+        self._freqSortedLabelIndices = list(range(len(self._labels)))
+        self._freqSortedLabelIndices.sort(key=lambda l: self._labelC[l], reverse=True)
+        
         self._featureIndexes.freeze()
     
     def _computeScore(self, featureMap, weights, labelIndex):
@@ -402,22 +592,28 @@ class DiscriminativeTagger(object):
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
-    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValues, int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
         nTokens = len(sent)
         
         # expand the size of dynamic programming tables if necessary
-        if len(dpValues)<nTokens:
+        if len(dpValuesFwd)<nTokens:
             #dpValues = [[0.0]*len(self._labels) for t in range(int(nTokens*1.5))]
             #dpBackPointers = [[0]*len(self._labels) for t in range(int(nTokens*1.5))]
             
-            dpValues = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+            dpValuesFwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+            dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
-            
-        o1FeatWeights = {l: {} for l in range(len(self._labels))}   # {current label -> {prev label -> weight}}
-            
-        c_viterbi(sent, o0Feats, weights, dpValues, dpBackPointers, self._labels, self._featureIndexes, o1FeatWeights, includeLossTerm, costAugVal, useBIO)
-    
+        
+        c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+        preds = [x.prediction for x in sent]
+        i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+        preds2 = [x.prediction for x in sent]
+        print(preds)
+        print(preds2)
+        print('---')
+        assert preds2==preds
+
     def train(self, trainingData, savePrefix, averaging=False, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
@@ -468,7 +664,8 @@ class DiscriminativeTagger(object):
         # create DP tables
         #dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
         #dpBackPointers = [[0]*nLabels for t in range(MAX_NUM_TOKENS)]
-        dpValues = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        dpValuesFwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
         
         update = (maxTrainIters>0)   # training?
@@ -509,7 +706,7 @@ class DiscriminativeTagger(object):
             
             for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
                 
-                self._viterbi(sent, o0Feats, currentWeights, dpValues, dpBackPointers,
+                self._viterbi(sent, o0Feats, currentWeights, dpValuesFwd, dpValuesBwd, dpBackPointers,
                               includeLossTerm=False, costAugVal=0.0, useBIO=useBIO)
         
                 if update:
@@ -606,7 +803,7 @@ def main():
     # formerly only allowed in properties file
     boolflag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", default=False)
     flag("costAug", "Value of cost penalty for errors against recall (for recall-oriented learning)", ftype=float, default=0.0)
-    boolflag("usePrevLabel", "Include a first-order (label bigram) feature", default=True)
+    boolflag("excludeFirstOrder", "Do not include label bigram features", default=False)
     
     # formerly: "useFeatureNumber"
     flag("excludeFeatures","Comma-separated list of (0-based) column numbers to ignore when reading feature files. (Do not specify column 0; use --no-lex instead.)", default='')
@@ -621,9 +818,8 @@ def main():
     if args.labels is None and args.load is None:
         raise Exception('Missing argument: --labels')
     
+    supersenseFeatureExtractor.registerOpts(args)
     
-    
-        
     if args.load is not None:
         print('loading model from',args.load,'...', file=sys.stderr)
         t = DiscriminativeTagger.loadModel(args.load)

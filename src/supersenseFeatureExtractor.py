@@ -10,10 +10,12 @@ import sys, re, gzip
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
             'useBigramFeatures': False, # token bigrams
-            'usePrevLabel': True,   # label bigrams (first-order)
             'WordNetPath': 'dict/file_properties.xml',
             "clusterFile": "../data/clusters/clusters_1024_49.gz",
             "useOldDataFormat": True}
+
+def registerOpts(program_args):
+    _options['usePrevLabel'] = not program_args.excludeFirstOrder
 
 clusterMap = None
 
