@@ -178,6 +178,8 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
         for i in range(nTokens)[::-1]:
             sent[i] = sent[i]._replace(prediction=labels[maxIndex])
             maxIndex = dpBackPointers[i,maxIndex]
+            
+        return maxScore
 
 
 cdef i_viterbi(sent, o0Feats, float[:] weights, 
@@ -265,42 +267,38 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                     score0 = max(score0s) if score0s else NEGINF
                     
                     # consider each possible previous label
-                    if (direc==1 and i==0) or (direc==-1 and i==nTokens-1):
+                    if (direc==1 and i==0) or (direc==-1 and i==nTokens-1): # beginning of the path
                         maxScore = score = score0
                         maxIndex = freqSortedLabelIndices[0]    # doesn't matter--start of path through lattice
                         assert maxIndex>=0
                         if not lIsCollapsed:
                             maxScoreActive = maxScore
-                    else:
+                    else:   # look backwards
                         for k,kIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i-direc]+1], [False]*latticeColumnSize[i-direc]+[True]):
                             #if not kIsCollapsed and k in pruned[i-direc]: continue
-                            
+                            score1 = dpValues[i-direc,k]    # NOT k2, because we are searching the degenerate lattice!
                             score1s = []
                             for k2 in ([k] if not kIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i-direc]:]):
                                 #if k2 in pruned[i-direc]: continue
                                 
-                                kLabel = labels[k2]
-                                
-                                score1 = dpValues[i-direc,k2]
                                 # score of moving from label k at the previous position to the current position (i) and label (l)
                                 if hasFOF or useBIO:
                                     # TODO: generalize this to allow other kinds of first-order features?
                                     # (may require resorting to bounds for efficiency)
-                                    scores1b = []
                                     for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
                                         #if l2 in pruned[i]: continue
                                         
                                         if k2 not in o1FeatWeights[direc][l2]:
                                             label = labels[l2]
+                                            kLabel = labels[k2]
                                             if direc==1:
                                                 leftLabel, rightLabel = kLabel, label
                                             else:
                                                 leftLabel, rightLabel = label, kLabel
                                             o1FeatWeights[direc][l2][k2] = NEGINF if not legalTagBigram(leftLabel, rightLabel, useBIO) else 0.0
                                             if hasFOF:
-                                                o1FeatWeights[direc][l2][k2] += weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], l2, indexerSize)]
-                                        scores1b.append(o1FeatWeights[direc][l2][k2])
-                                    score1s.append(score1 + max(scores1b) if scores1b else NEGINF)
+                                                o1FeatWeights[direc][l2][k2] += weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], (l2 if direc==1 else k2), indexerSize)]
+                                        score1s.append(score1 + o1FeatWeights[direc][l2][k2])
                                 else:
                                     score1s.append(score1)
                             
@@ -338,6 +336,8 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                         #if not firstiter and dpValuesFwd[i,l]+dpValuesBwd[i,l]-score0 < lower_bound:
                         #    print('prune',i,l, file=sys.stderr)
                         #    pruned[i].add(l)
+                        #    #dpValues[i,l] = NEGINF
+                        #    #dpBackPointers[i,l] = -1
             
             # decode from the lattice
             # extract predictions from backpointers
@@ -362,9 +362,11 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                 # calculate lower bound by decoding using only active labels
                 assert lower_bound<=maxScore,(lower_bound,maxScore)
             else:
-                assert lower_bound==maxScore
+                assert lower_bound==maxScore,(lower_bound,maxScore)    #??
             
             firstiter = False
+            
+        return maxScore
 
 class DiscriminativeTagger(object):
     def __init__(self):
@@ -605,14 +607,14 @@ class DiscriminativeTagger(object):
             dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
         
-        c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-        preds = [x.prediction for x in sent]
-        i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+        score1 = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+        preds1 = [x.prediction for x in sent]
+        score2 = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
         preds2 = [x.prediction for x in sent]
-        print(preds)
-        print(preds2)
+        print(score1,preds1)
+        print(score2,preds2)
         print('---')
-        assert preds2==preds
+        assert preds2==preds1
 
     def train(self, trainingData, savePrefix, averaging=False, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
