@@ -187,14 +187,14 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
               labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the iterative Viterbi algorithm of Kaji et al. 2010 for staggered decoding (cf. Huang et al. 2012). 
         With proper caching and pruning this is much faster than standard Viterbi. 
-        Updates the predicted labels in 'sent'. Used in both training and testing.'''
+        Updates the predicted labels in 'sent'. Used in both training and testing.
+        (Assertions are commented out for speed.)'''
                 
         indexerSize = len(featureIndexes)
         
-        
         hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
         
-        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc
+        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc, last
         cdef float score, score0, maxScore, INF, NEGINF, lower_bound
         cdef float[:,:] dpValues
         
@@ -202,6 +202,10 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         NEGINF = float('-inf')
         nTokens = len(sent)
         nLabels = len(labels)
+        
+        dpValuesFwd[:,:] = NEGINF
+        dpValuesBwd[:,:] = NEGINF
+        dpBackPointers[:,:] = -1
         
         prevLabel = None
         
@@ -212,7 +216,9 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         
         o0Scores = [[None]*nLabels for t in range(nTokens)]
         o1FeatWeights = {1: {l: {} for l in range(nLabels)}, -1: {l: {} for l in range(nLabels)}}   # {direc -> {current label -> {prev label -> weight}}}
-        #pruned = [set() for t in range(nTokens)]
+        
+        prune = [set() for t in range(nTokens)]
+        pruned = [set() for t in range(nTokens)]
         
         lower_bound = NEGINF
         
@@ -224,10 +230,8 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
             direc = -direc
             if direc==1:
                 dpValues = dpValuesFwd
-                print('(', end='', file=sys.stderr)
             else:
                 dpValues = dpValuesBwd
-                print(')', end='', file=sys.stderr)
             
             dpValuesActive = [[None]*latticeColumnSize[q] for q in range(nTokens)]
             
@@ -235,7 +239,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                 o0FeatureMap = o0Feats[i]
                 
                 for l,lIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i]+1], [False]*latticeColumnSize[i]+[True]):
-                    #if not lIsCollapsed and l in pruned[i]: continue
+                    if (not lIsCollapsed) and l in pruned[i]: continue
                     
                     maxScore = NEGINF
                     maxIndex = -1
@@ -244,7 +248,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                     # score for zero-order features
                     score0s = []
                     for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
-                        #if l2 in pruned[i]: continue
+                        if l2 in pruned[i]: continue
                         
                         if o0Scores[i][l2] is None:
                             label = labels[l2]
@@ -270,23 +274,23 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                     if (direc==1 and i==0) or (direc==-1 and i==nTokens-1): # beginning of the path
                         maxScore = score = score0
                         maxIndex = freqSortedLabelIndices[0]    # doesn't matter--start of path through lattice
-                        assert maxIndex>=0
+                        '''assert maxIndex>=0'''
                         if not lIsCollapsed:
                             maxScoreActive = maxScore
                     else:   # look backwards
                         for k,kIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i-direc]+1], [False]*latticeColumnSize[i-direc]+[True]):
-                            #if not kIsCollapsed and k in pruned[i-direc]: continue
+                            if (not kIsCollapsed) and k in pruned[i-direc]: continue
                             score1 = dpValues[i-direc,k]    # NOT k2, because we are searching the degenerate lattice!
                             score1s = []
                             for k2 in ([k] if not kIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i-direc]:]):
-                                #if k2 in pruned[i-direc]: continue
+                                if k2 in pruned[i-direc]: continue
                                 
                                 # score of moving from label k at the previous position to the current position (i) and label (l)
                                 if hasFOF or useBIO:
                                     # TODO: generalize this to allow other kinds of first-order features?
                                     # (may require resorting to bounds for efficiency)
                                     for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
-                                        #if l2 in pruned[i]: continue
+                                        if l2 in pruned[i]: continue
                                         
                                         if k2 not in o1FeatWeights[direc][l2]:
                                             label = labels[l2]
@@ -320,53 +324,72 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                                 maxScore = score
                                 maxIndex = k
                             if not lIsCollapsed and not kIsCollapsed:
-                                #assert k==freqSortedLabelIndices.index(k),(k,len(dpValuesActive[i-direc]),dpValuesActive[i-direc][k],freqSortedLabelIndices)   # ??
                                 scoreActive = dpValuesActive[i-direc][freqSortedLabelIndices.index(k)] + score0
                                 if hasFOF or useBIO:
                                     scoreActive += o1FeatWeights[direc][l][k]
                                 if scoreActive>maxScoreActive:
                                     maxScoreActive = scoreActive
                             
-                    #assert maxIndex>=0,(maxIndex,direc,i,score0)
                     dpValues[i,l] = maxScore
                     dpBackPointers[i,l] = maxIndex
                     if not lIsCollapsed:
                         dpValuesActive[i][freqSortedLabelIndices.index(l)] = maxScoreActive
-                        # pruning
-                        #if not firstiter and dpValuesFwd[i,l]+dpValuesBwd[i,l]-score0 < lower_bound:
-                        #    print('prune',i,l, file=sys.stderr)
-                        #    pruned[i].add(l)
-                        #    #dpValues[i,l] = NEGINF
-                        #    #dpBackPointers[i,l] = -1
+                        if not firstiter and dpValuesFwd[i,l]>NEGINF and dpValuesBwd[i,l]>NEGINF:
+                            # pruning
+                            # the >NEGINF checks are to ensure that the label wasn't newly activated 
+                            # in this round, and therefore has both forward and backward values!
+                            '''
+                            assert score0==o0Scores[i][l]
+                            assert maxScore in (dpValuesFwd[i,l],dpValuesBwd[i,l])
+                            '''
+                            upper_bound_this_node = dpValuesFwd[i,l]+dpValuesBwd[i,l]-score0
+                            if upper_bound_this_node < lower_bound:
+                                upper_bound = max(dpValues[nTokens-1 if direc==1 else 0])
+                                prune[i].add(l)
+            
             
             # decode from the lattice
             # extract predictions from backpointers
             
             # first, find the best label for the last token
-            maxIndex, maxScore = max([(q, dpValues[nTokens-1 if direc==1 else 0][q]) for q in freqSortedLabelIndices[:latticeColumnSize[nTokens-1 if direc==1 else 0]+1]], key=operator.itemgetter(1))
+            last = nTokens-1 if direc==1 else 0
+            backpointer, upper_bound = max([(q, dpValues[last][q]) for q in freqSortedLabelIndices[:latticeColumnSize[last]+1] if q not in pruned[last]], key=operator.itemgetter(1))
+            best_active = max(dpValuesActive[last])
+            
+            
+            if lower_bound < best_active:
+                lower_bound = best_active
+            
             
             # now proceed in the opposite direction, following backpointers
+            reachedPrunedLabel = False
             for i in range(nTokens)[::-direc]:
-                if latticeColumnSize[i]<nLabels and maxIndex==freqSortedLabelIndices[latticeColumnSize[i]]:    # best decoding uses a collapsed label at this position
+                if latticeColumnSize[i]<nLabels and backpointer==freqSortedLabelIndices[latticeColumnSize[i]]:    # best decoding uses a collapsed label at this position
                     # column-wise expansion
                     latticeColumnSize[i] = min(latticeColumnSize[i]*2, nLabels)
                     iterate = True
                 else:   # best decoding uses an active label at this position
-                    sent[i] = sent[i]._replace(prediction=labels[maxIndex])
+                    sent[i] = sent[i]._replace(prediction=labels[backpointer])
                 
-                assert maxIndex>=0,(maxIndex,direc,i)
-                maxIndex = dpBackPointers[i,maxIndex]
+                if backpointer in pruned[i]:
+                    reachedPrunedLabel = True
+                '''assert backpointer>=0,(backpointer,direc,i)'''
+                backpointer = dpBackPointers[i,backpointer]
+                
             
-            lower_bound = max(dpValuesActive[nTokens-1 if direc==1 else 0])
+            '''
             if iterate:
                 # calculate lower bound by decoding using only active labels
-                assert lower_bound<=maxScore,(lower_bound,maxScore)
+                assert lower_bound<=upper_bound,(lower_bound,upper_bound)
             else:
-                assert lower_bound==maxScore,(lower_bound,maxScore)    #??
+                assert lower_bound==upper_bound,(lower_bound,upper_bound)
             
+            assert iterate or not reachedPrunedLabel,upper_bound
+            '''
             firstiter = False
             
-        return maxScore
+        '''assert upper_bound==best_active,(upper_bound,best_active)'''
+        return upper_bound
 
 class DiscriminativeTagger(object):
     def __init__(self):
@@ -594,7 +617,8 @@ class DiscriminativeTagger(object):
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
-    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, 
+                 int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
         nTokens = len(sent)
         
@@ -602,19 +626,18 @@ class DiscriminativeTagger(object):
         if len(dpValuesFwd)<nTokens:
             #dpValues = [[0.0]*len(self._labels) for t in range(int(nTokens*1.5))]
             #dpBackPointers = [[0]*len(self._labels) for t in range(int(nTokens*1.5))]
-            
             dpValuesFwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
         
-        score1 = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-        preds1 = [x.prediction for x in sent]
+        #score1 = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+        #preds1 = [x.prediction for x in sent]
         score2 = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-        preds2 = [x.prediction for x in sent]
-        print(score1,preds1)
-        print(score2,preds2)
-        print('---')
-        assert preds2==preds1
+        #preds2 = [x.prediction for x in sent]
+        #print(score1,preds1)
+        #print(score2,preds2)
+        #print('---')
+        #assert score1==score2,(score1,score2)
 
     def train(self, trainingData, savePrefix, averaging=False, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
@@ -666,6 +689,7 @@ class DiscriminativeTagger(object):
         # create DP tables
         #dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
         #dpBackPointers = [[0]*nLabels for t in range(MAX_NUM_TOKENS)]
+        
         dpValuesFwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
