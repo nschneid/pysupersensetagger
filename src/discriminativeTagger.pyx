@@ -184,7 +184,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
 
 cdef i_viterbi(sent, o0Feats, float[:] weights, 
               float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, int[:, :] dpBackPointers, 
-              labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+              float[:, :] o0Scores, float[:,:,:] o1FeatWeights, labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the iterative Viterbi algorithm of Kaji et al. 2010 for staggered decoding (cf. Huang et al. 2012). 
         With proper caching and pruning this is much faster than standard Viterbi. 
         Updates the predicted labels in 'sent'. Used in both training and testing.
@@ -194,7 +194,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         
         hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
         
-        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc, last
+        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc, last, backpointer
         cdef float score, score0, maxScore, INF, NEGINF, lower_bound
         cdef float[:,:] dpValues
         
@@ -206,6 +206,8 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         dpValuesFwd[:,:] = NEGINF
         dpValuesBwd[:,:] = NEGINF
         dpBackPointers[:,:] = -1
+        o0Scores[:,:] = INF # INF means not yet computed
+        # do not have to initialize o1FeatWeights each time because its contents do not depend on the sentence.
         
         prevLabel = None
         
@@ -214,10 +216,6 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         
         latticeColumnSize = [1]*len(sent)   # number of active labels for each token
         
-        o0Scores = [[None]*nLabels for t in range(nTokens)]
-        o1FeatWeights = {1: {l: {} for l in range(nLabels)}, -1: {l: {} for l in range(nLabels)}}   # {direc -> {current label -> {prev label -> weight}}}
-        
-        prune = [set() for t in range(nTokens)]
         pruned = [set() for t in range(nTokens)]
         
         lower_bound = NEGINF
@@ -236,9 +234,12 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
             dpValuesActive = [[None]*latticeColumnSize[q] for q in range(nTokens)]
             
             for i in range(nTokens)[::direc]:
+                columnLabels = freqSortedLabelIndices[:latticeColumnSize[i]+1]
+                columnLabelsDegenerate = freqSortedLabelIndices[latticeColumnSize[i]:]
+                
                 o0FeatureMap = o0Feats[i]
                 
-                for l,lIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i]+1], [False]*latticeColumnSize[i]+[True]):
+                for l,lIsCollapsed in zip(columnLabels, [False]*latticeColumnSize[i]+[True]):
                     if (not lIsCollapsed) and l in pruned[i]: continue
                     
                     maxScore = NEGINF
@@ -247,10 +248,10 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                     
                     # score for zero-order features
                     score0s = []
-                    for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
+                    for l2 in ([l] if not lIsCollapsed else columnLabelsDegenerate):
                         if l2 in pruned[i]: continue
                         
-                        if o0Scores[i][l2] is None:
+                        if o0Scores[i,l2]==INF:    # compute and store the zero-order score for this label at this position
                             label = labels[l2]
                             if i==0 and not legalTagBigram(None, label, useBIO):
                                 score0 = NEGINF
@@ -263,9 +264,9 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                                     if label=='O':
                                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                                 
-                            o0Scores[i][l2] = score0
+                            o0Scores[i,l2] = score0
                         else:
-                            score0 = o0Scores[i][l2]
+                            score0 = o0Scores[i,l2]
                         
                         score0s.append(score0)
                     score0 = max(score0s) if score0s else NEGINF
@@ -278,31 +279,38 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                         if not lIsCollapsed:
                             maxScoreActive = maxScore
                     else:   # look backwards
-                        for k,kIsCollapsed in zip(freqSortedLabelIndices[:latticeColumnSize[i-direc]+1], [False]*latticeColumnSize[i-direc]+[True]):
+                        kcolumnLabels = freqSortedLabelIndices[:latticeColumnSize[i-direc]+1]
+                        kcolumnLabelsDegenerate = freqSortedLabelIndices[latticeColumnSize[i-direc]:]
+                        for k,kIsCollapsed in zip(kcolumnLabels, [False]*latticeColumnSize[i-direc]+[True]):
                             if (not kIsCollapsed) and k in pruned[i-direc]: continue
                             score1 = dpValues[i-direc,k]    # NOT k2, because we are searching the degenerate lattice!
                             score1s = []
-                            for k2 in ([k] if not kIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i-direc]:]):
+                            for k2 in ([k] if not kIsCollapsed else kcolumnLabelsDegenerate):
                                 if k2 in pruned[i-direc]: continue
                                 
                                 # score of moving from label k at the previous position to the current position (i) and label (l)
                                 if hasFOF or useBIO:
                                     # TODO: generalize this to allow other kinds of first-order features?
                                     # (may require resorting to bounds for efficiency)
-                                    for l2 in ([l] if not lIsCollapsed else freqSortedLabelIndices[latticeColumnSize[i]:]):
+                                    for l2 in ([l] if not lIsCollapsed else columnLabelsDegenerate):
                                         if l2 in pruned[i]: continue
                                         
-                                        if k2 not in o1FeatWeights[direc][l2]:
+                                        if o1FeatWeights[(direc+1)//2,l2,k2]==INF:    # don't bother to consult the matrix if only checking BIO constraint
                                             label = labels[l2]
                                             kLabel = labels[k2]
                                             if direc==1:
                                                 leftLabel, rightLabel = kLabel, label
                                             else:
                                                 leftLabel, rightLabel = label, kLabel
-                                            o1FeatWeights[direc][l2][k2] = NEGINF if not legalTagBigram(leftLabel, rightLabel, useBIO) else 0.0
-                                            if hasFOF:
-                                                o1FeatWeights[direc][l2][k2] += weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], (l2 if direc==1 else k2), indexerSize)]
-                                        score1s.append(score1 + o1FeatWeights[direc][l2][k2])
+                                            
+                                            if not legalTagBigram(leftLabel, rightLabel, useBIO):
+                                                o1FeatWeights[(direc+1)//2,l2,k2] = NEGINF
+                                            elif hasFOF:
+                                                o1FeatWeights[(direc+1)//2,l2,k2] = weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], (l2 if direc==1 else k2), indexerSize)]
+                                            else:
+                                                o1FeatWeights[(direc+1)//2,l2,k2] = 0.0
+                                            
+                                        score1s.append(score1 + o1FeatWeights[(direc+1)//2,l2,k2])
                                 else:
                                     score1s.append(score1)
                             
@@ -324,11 +332,12 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                                 maxScore = score
                                 maxIndex = k
                             if not lIsCollapsed and not kIsCollapsed:
-                                scoreActive = dpValuesActive[i-direc][freqSortedLabelIndices.index(k)] + score0
-                                if hasFOF or useBIO:
-                                    scoreActive += o1FeatWeights[direc][l][k]
-                                if scoreActive>maxScoreActive:
-                                    maxScoreActive = scoreActive
+                                if score>NEGINF:    # NEGINF if BIO constraint is violated
+                                    scoreActive = dpValuesActive[i-direc][freqSortedLabelIndices.index(k)] + score0
+                                    if hasFOF:
+                                        scoreActive += o1FeatWeights[(direc+1)//2,l,k]
+                                    if scoreActive>maxScoreActive:
+                                        maxScoreActive = scoreActive
                             
                     dpValues[i,l] = maxScore
                     dpBackPointers[i,l] = maxIndex
@@ -339,13 +348,13 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                             # the >NEGINF checks are to ensure that the label wasn't newly activated 
                             # in this round, and therefore has both forward and backward values!
                             '''
-                            assert score0==o0Scores[i][l]
+                            assert score0==o0Scores[i,l]
                             assert maxScore in (dpValuesFwd[i,l],dpValuesBwd[i,l])
                             '''
                             upper_bound_this_node = dpValuesFwd[i,l]+dpValuesBwd[i,l]-score0
                             if upper_bound_this_node < lower_bound:
                                 upper_bound = max(dpValues[nTokens-1 if direc==1 else 0])
-                                prune[i].add(l)
+                                pruned[i].add(l)
             
             
             # decode from the lattice
@@ -353,7 +362,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
             
             # first, find the best label for the last token
             last = nTokens-1 if direc==1 else 0
-            backpointer, upper_bound = max([(q, dpValues[last][q]) for q in freqSortedLabelIndices[:latticeColumnSize[last]+1] if q not in pruned[last]], key=operator.itemgetter(1))
+            backpointer, upper_bound = max([(q, dpValues[last][q]) for q in freqSortedLabelIndices[:latticeColumnSize[last]+1]], key=operator.itemgetter(1))
             best_active = max(dpValuesActive[last])
             
             
@@ -618,7 +627,8 @@ class DiscriminativeTagger(object):
         return dotProduct
     
     def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, 
-                 int[:, :] dpBackPointers, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+                 int[:, :] dpBackPointers, float[:, :] o0Scores, float[:, :, :] o1FeatWeights, 
+                 includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
         nTokens = len(sent)
         
@@ -629,15 +639,20 @@ class DiscriminativeTagger(object):
             dpValuesFwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
             dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
+            o0Scores = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
         
-        #score1 = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-        #preds1 = [x.prediction for x in sent]
-        score2 = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-        #preds2 = [x.prediction for x in sent]
-        #print(score1,preds1)
-        #print(score2,preds2)
-        #print('---')
-        #assert score1==score2,(score1,score2)
+        METHOD = 'c'   # conventional and/or iterative Viterbi
+        if 'c' in METHOD:
+            c_score = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+            c_preds = [x.prediction for x in sent]
+        if 'i' in METHOD:
+            i_score = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+            i_preds = [x.prediction for x in sent]
+        if 'c' in METHOD and 'i' in METHOD: # check that results match
+            print(c_score,c_preds)
+            print(i_score,i_preds)
+            print('---')
+            assert c_score==i_score,(c_score,i_score)
 
     def train(self, trainingData, savePrefix, averaging=False, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
@@ -693,6 +708,9 @@ class DiscriminativeTagger(object):
         dpValuesFwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
+        o0Scores = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        o1FeatWeights = cvarray(shape=(2, nLabels, nLabels), itemsize=sizeof(float), format='f')
+        o1FeatWeights[:,:,:] = float('inf')    # INF = uninitialized. note that the contents do not depend on the sentence.
         
         update = (maxTrainIters>0)   # training?
         
@@ -733,11 +751,12 @@ class DiscriminativeTagger(object):
             for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
                 
                 self._viterbi(sent, o0Feats, currentWeights, dpValuesFwd, dpValuesBwd, dpBackPointers,
-                              includeLossTerm=False, costAugVal=0.0, useBIO=useBIO)
+                              o0Scores, o1FeatWeights, includeLossTerm=False, costAugVal=0.0, useBIO=useBIO)
         
                 if update:
                     nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights)
                     # will update currentWeights as well as running average in finalWeights
+                    o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
                 for i in range(len(sent)):
                     if sent[i].gold != sent[i].prediction:
