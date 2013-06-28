@@ -5,13 +5,16 @@ Ported from Michael Heilman's SuperSenseFeatureExtractor.java
 @since: 2012-07-22
 '''
 from __future__ import print_function, division
-import sys, re, gzip
+import sys, os, re, gzip
+
+SRCDIR = os.path.dirname(os.path.abspath(__file__))
+DATADIR = SRCDIR+'/../data'
 
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
             'useBigramFeatures': False, # token bigrams
-            'WordNetPath': 'dict/file_properties.xml',
-            "clusterFile": "../data/clusters/clusters_1024_49.gz",
+            'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
+            "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
             "useOldDataFormat": True}
 
 def registerOpts(program_args):
@@ -463,8 +466,8 @@ def loadSenseDataNewFormat():
     assert not possibleSensesMap
     assert not senseCountMap
     
-    nounFile = _options.setdefault("nounFile","../data/oldgaz/NOUNS_WS_SS_P.gz")
-    verbFile = _options.setdefault("verbFile","../data/oldgaz/VERBS_WS_SS.gz")
+    nounFile = _options.setdefault("nounFile",DATADIR+"/oldgaz/NOUNS_WS_SS_P.gz")
+    verbFile = _options.setdefault("verbFile",DATADIR+"/oldgaz/VERBS_WS_SS.gz")
     for pos,f in [('N',nounFile), ('V',verbFile)]:
         with gzip.open(f) as inF:
             for ln in inF:
@@ -478,7 +481,7 @@ def loadSenseDataNewFormat():
                     raise
     
     try:
-        possibleSensesFile = _options.setdefault("possibleSensesFile","../data/gaz/possibleSuperSenses.GAZ.gz")
+        possibleSensesFile = _options.setdefault("possibleSensesFile",DATADIR+"/gaz/possibleSuperSenses.GAZ.gz")
         with gzip.open(possibleSensesFile) as psF:
             for ln in psF:
                 parts = ln[:-1].split('\t')
@@ -504,9 +507,9 @@ def loadSenseDataOriginalFormat():
     assert not possibleSensesMap
     assert not senseCountMap
     
-    nounFile = _options.setdefault("nounFile","../data/oldgaz/NOUNS_WS_SS_P.gz")
+    nounFile = _options.setdefault("nounFile",DATADIR+"/oldgaz/NOUNS_WS_SS_P.gz")
     _loadSenseFileOriginalFormat(nounFile, "N")
-    verbFile = _options.setdefault("verbFile","../data/oldgaz/VERBS_WS_SS.gz")
+    verbFile = _options.setdefault("verbFile",DATADIR+"/oldgaz/VERBS_WS_SS.gz")
     _loadSenseFileOriginalFormat(verbFile, "V")
 
     print("done.", file=sys.stderr)
