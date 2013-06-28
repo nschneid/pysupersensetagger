@@ -808,7 +808,7 @@ class DiscriminativeTagger(object):
         print(len(self._featureIndexes),'lifted features x',len(self._labels),'labels =',len(self._featureIndexes)*len(self._labels),'grounded features', file=out)
         print('labels:',self._labels,'\n', file=out)
         for fname in sorted(self._featureIndexes.strings):
-            print(''.join(fname), file=out)
+            print(''.join(fname).encode('utf-8'), file=out)
     
     def saveModel(self, savePrefix):
         import cPickle
