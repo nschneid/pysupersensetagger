@@ -494,7 +494,7 @@ class DiscriminativeTagger(object):
             for i,label in enumerate(self._labels):
                 value = weights[_ground0(index,i,indexerSize)]
                 if value!=0.0:
-                    print(label.encode('utf-8'), fname.encode('utf-8'), value, sep='\t', file=out)
+                    print(label.encode('utf-8'), fname, value, sep='\t', file=out)
             print(file=out)
             
     def tagStandardInput(self):
