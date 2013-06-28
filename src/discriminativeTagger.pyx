@@ -756,7 +756,8 @@ class DiscriminativeTagger(object):
         # tabulate accuracy at every 500 iterations
         nWordsProcessed = 0
         nWordsIncorrect = 0
-        
+        totalWordsProcessed = 0
+        totalWordsIncorrect = 0
         totalInstancesProcessed = 0
         
         
@@ -782,7 +783,9 @@ class DiscriminativeTagger(object):
                 for i in range(len(sent)):
                     if sent[i].gold != sent[i].prediction:
                         nWordsIncorrect += 1
+                        totalWordsIncorrect += 1
                 nWordsProcessed += len(sent)
+                totalWordsProcessed += len(sent)
                 totalInstancesProcessed += 1
                 #print(',', end='', file=sys.stderr)
                 
@@ -795,6 +798,8 @@ class DiscriminativeTagger(object):
                     nWordsIncorrect = nWordsProcessed = 0
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
+            
+            print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
             
             if update and not averaging:
                 finalWeights = currentWeights
