@@ -4,7 +4,7 @@ Created on Jul 24, 2012
 @author: Nathan Schneider (nschneid)
 '''
 from __future__ import print_function
-import sys, gzip
+import sys, os, gzip
 
 morphMap = {} # pos -> {word -> stem}
 
@@ -41,7 +41,7 @@ def loadMorphDataOriginalFormat():
     assert False
     global morphMap
     morphMap = {}
-    with gzip.open(_options.get('morphFile','../data/oldgaz/MORPH_CACHE.gz')) as inF:
+    with gzip.open(_options.get('morphFile',os.path.dirname(os.path.abspath(__file__))+'/../data/oldgaz/MORPH_CACHE.gz')) as inF:
         for ln in inF:
             pos, w, stemS = ln[:-1].split('\t')
             addMorph(w, pos, stemS)
@@ -59,7 +59,7 @@ def loadMorphDataNewFormat():
     
     global morphMap
     morphMap = {}
-    with gzip.open(_options.get('morphFile','../data/morph/MORPH_CACHE.gz')) as inF:
+    with gzip.open(_options.get('morphFile',os.path.dirname(os.path.abspath(__file__))+'/../data/morph/MORPH_CACHE.gz')) as inF:
         for ln in inF:
             pos, w, stemS = ln[:-1].split('\t')
             addMorph(w, pos, stemS)
