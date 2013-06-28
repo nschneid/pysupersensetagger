@@ -22,10 +22,11 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, keep_in_memory=True):
+    def __init__(self, path, labels, legacy0, keep_in_memory=True):
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
+        self._legacy0 = legacy0
         self.open_file()
     
     def close_file(self):
@@ -76,8 +77,11 @@ class SupersenseDataSet(DataSet):
                         sent.articleId = parts[3]
                     parts = parts[:3]
                 token, pos, label = parts
-                if label not in self._labels:
-                    label = '0'
+                if label=='0' and self._legacy0:
+                    assert 'O' in self._labels,self._labels
+                    label = 'O'
+                elif label not in self._labels:
+                    label = 'O'
                 label = uintern(unicode(label))
                 pos = uintern(unicode(pos))
                 stemS = morph.stem(token,pos)

@@ -426,7 +426,7 @@ class DiscriminativeTagger(object):
         #self._rgen = random.Random(1234567)
         
     @staticmethod
-    def loadLabelList(labelFile):
+    def loadLabelList(labelFile, legacy0):
         '''
         Load a list of possible labels. This must be done before training 
         so that the feature vector has the appropriate dimensions.
@@ -435,7 +435,10 @@ class DiscriminativeTagger(object):
         with codecs.open(labelFile, 'r', 'utf-8') as labelF:
             for ln in labelF:
                 if ln[:-1]:
-                    labels.append(ln[:-1])
+                    l = ln[:-1]
+                    if legacy0 and l=='0':
+                        l = 'O'
+                    labels.append(l)
         return labels
     
     @staticmethod
@@ -447,7 +450,7 @@ class DiscriminativeTagger(object):
         #/*if(label.contains("-adj.") || label.contains("-adv.") || label.endsWith(".other")){
         #    return "0";
         #}*/
-        return label if label in labels else '0'
+        return label if label in labels else 'O'
     
     @staticmethod
     def loadSuperSenseData(path, labels):
@@ -865,6 +868,7 @@ def main():
     
     # formerly only allowed in properties file
     boolflag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", default=False)
+    boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
     flag("costAug", "Value of cost penalty for errors against recall (for recall-oriented learning)", ftype=float, default=0.0)
     boolflag("excludeFirstOrder", "Do not include label bigram features", default=False)
     
@@ -892,7 +896,7 @@ def main():
     else:
         t = DiscriminativeTagger()
         #t.setBinaryFeats(False)
-        labels = DiscriminativeTagger.loadLabelList(args.labels)
+        labels = DiscriminativeTagger.loadLabelList(args.labels, args.legacy0)
         t._labels = labels  # TODO: "private" access
         #t._labels = ['0', 'B-noun.person', 'I-noun.person']  # TODO: debugging purposes
         
@@ -900,7 +904,7 @@ def main():
         
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
-            trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels), t._featureIndexes, cache_features=True)
+            trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=True)
             
             t.train(trainingData, args.save, maxIters=args.iters, averaging=(not args.no_averaging), 
                     developmentMode=args.debug, 
