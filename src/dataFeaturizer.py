@@ -10,6 +10,11 @@ import os, sys, codecs
 from labeledSentence import LabeledSentence
 import supersenseFeatureExtractor, morph
 
+USTRINGS = {}
+def uintern(unicode_string):
+    '''Simulate built-in intern(), but in a way that works for unicode strings.'''
+    return USTRINGS.setdefault(unicode_string,unicode_string)
+
 class DataSet(object):
     def __init__(self, f):
         self._file = f
@@ -73,8 +78,8 @@ class SupersenseDataSet(DataSet):
                 token, pos, label = parts
                 if label not in self._labels:
                     label = '0'
-                label = intern(unicode(label))
-                pos = intern(unicode(pos))
+                label = uintern(unicode(label))
+                pos = uintern(unicode(pos))
                 stemS = morph.stem(token,pos)
                 sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
                 
