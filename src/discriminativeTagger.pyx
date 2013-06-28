@@ -920,17 +920,23 @@ def main():
             raise NotImplemented()
     
     
-    if args.test is not None:
+    if args.test is not None or args.test_predict is not None:
+        
         #data = DiscriminativeTagger.loadSuperSenseData(args.test, t.getLabels())
-        data = SupersenseFeaturizer(SupersenseDataSet(args.test, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+        data = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
         
         next(t.decode(data, maxTrainIters=0, averaging=(not args.no_averaging),
                       useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug))
+        
+        if not args.test:
+            # print predictions
+            for sent in data:
+                for tok in sent:
+                    print(tok.token.encode('utf-8'), tok.predLabel.encode('utf-8'), sep='\t')
+                print()
     
     elif args.weights:
         t.printWeights(sys.stdout)
-    elif args.test_predict:
-        t.printPredictions(args.test_predict, t.getLabels(), t.getWeights())
     else:
         t.tagStandardInput()
 
