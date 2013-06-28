@@ -930,7 +930,7 @@ def main():
         
         if not args.test:
             # print predictions
-            for sent in data:
+            for sent,o0Feats in data:
                 for tok in sent:
                     print(tok.token.encode('utf-8'), tok.predLabel.encode('utf-8'), sep='\t')
                 print()
