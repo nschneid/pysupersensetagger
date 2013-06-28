@@ -578,7 +578,7 @@ class DiscriminativeTagger(object):
             
         return len(updates)
     
-    def _createFeatures(self, trainingData, sentIndices=slice(0,100)):
+    def _createFeatures(self, trainingData, sentIndices=slice(0,None)):
         '''Before training, loop through the training data once 
         to instantiate all possible features, and create the weight 
         vector'''
