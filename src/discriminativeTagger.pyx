@@ -932,7 +932,7 @@ def main():
             # print predictions
             for sent,o0Feats in data:
                 for tok in sent:
-                    print(tok.token.encode('utf-8'), tok.predLabel.encode('utf-8'), sep='\t')
+                    print(tok.token.encode('utf-8'), tok.prediction.encode('utf-8'), sep='\t')
                 print()
     
     elif args.weights:
