@@ -73,8 +73,8 @@ class SupersenseDataSet(DataSet):
                 token, pos, label = parts
                 if label not in self._labels:
                     label = '0'
-                label = intern(str(label))
-                pos = intern(str(pos))
+                label = intern(unicode(label))
+                pos = intern(unicode(pos))
                 stemS = morph.stem(token,pos)
                 sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
                 
