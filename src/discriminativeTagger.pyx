@@ -6,7 +6,7 @@ Created on Jul 24, 2012
 @author: Nathan Schneider (nschneid)
 '''
 from __future__ import print_function, division
-import sys, codecs, random, operator
+import sys, codecs, random, operator, math
 from collections import defaultdict, Counter
 
 cimport cython
@@ -194,7 +194,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         
         hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
         
-        cdef int nTokens, nLabels, i, k, k2, l, l2, maxIndex, q, direc, last, backpointer
+        cdef int nTokens, nLabels, i, k, k2, kq, l, l2, lq, maxIndex, q, direc, last, backpointer
         cdef float score, score0, maxScore, INF, NEGINF, lower_bound
         cdef float[:,:] dpValues
         
@@ -215,12 +215,14 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
             sent[i] = tok._replace(prediction=None)
         
         latticeColumnSize = [1]*len(sent)   # number of active labels for each token
+        nExpansions = [0]*len(sent)
         
         pruned = [set() for t in range(nTokens)]
         
         lower_bound = NEGINF
         
         iterate = True
+        nIters = 0
         firstiter = True
         direc = -1   # -1 for backward Viterbi, 1 for forward
         while iterate: # iterations
@@ -283,39 +285,52 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                         kcolumnLabelsDegenerate = freqSortedLabelIndices[latticeColumnSize[i-direc]:]
                         for k,kIsCollapsed in zip(kcolumnLabels, [False]*latticeColumnSize[i-direc]+[True]):
                             if (not kIsCollapsed) and k in pruned[i-direc]: continue
-                            score1 = dpValues[i-direc,k]    # NOT k2, because we are searching the degenerate lattice!
-                            score1s = []
-                            for k2 in ([k] if not kIsCollapsed else kcolumnLabelsDegenerate):
-                                if k2 in pruned[i-direc]: continue
+                            
+                            # indices for the cached labels, which may be degenerate
+                            lq = nLabels + nExpansions[i] if lIsCollapsed else l
+                            kq = nLabels + nExpansions[i-direc] if kIsCollapsed else k
+                            
+                            score = o1FeatWeights[(direc+1)//2,lq,kq]
+                            if score==INF:
+                            
+                                score1s = []
+                                for k2 in ([k] if not kIsCollapsed else kcolumnLabelsDegenerate):
+                                    if k2 in pruned[i-direc]: continue
+                                    
+                                    # score of moving from label k at the previous position to the current position (i) and label (l)
+                                    if hasFOF or useBIO:
+                                        # TODO: generalize this to allow other kinds of first-order features?
+                                        # (may require resorting to bounds for efficiency)
+                                        for l2 in ([l] if not lIsCollapsed else columnLabelsDegenerate):
+                                            if l2 in pruned[i]: continue
+                                            
+                                            if o1FeatWeights[(direc+1)//2,l2,k2]==INF:    # don't bother to consult the matrix if only checking BIO constraint
+                                                label = labels[l2]
+                                                kLabel = labels[k2]
+                                                if direc==1:
+                                                    leftLabel, rightLabel = kLabel, label
+                                                else:
+                                                    leftLabel, rightLabel = label, kLabel
+                                                
+                                                if not legalTagBigram(leftLabel, rightLabel, useBIO):
+                                                    o1FeatWeights[(direc+1)//2,l2,k2] = NEGINF
+                                                elif hasFOF:
+                                                    o1FeatWeights[(direc+1)//2,l2,k2] = weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], (l2 if direc==1 else k2), indexerSize)]
+                                                else:
+                                                    o1FeatWeights[(direc+1)//2,l2,k2] = 0.0
+                                                
+                                            score1s.append(o1FeatWeights[(direc+1)//2,l2,k2])
+                                    else:
+                                        score1s.append(0.0)
                                 
-                                # score of moving from label k at the previous position to the current position (i) and label (l)
-                                if hasFOF or useBIO:
-                                    # TODO: generalize this to allow other kinds of first-order features?
-                                    # (may require resorting to bounds for efficiency)
-                                    for l2 in ([l] if not lIsCollapsed else columnLabelsDegenerate):
-                                        if l2 in pruned[i]: continue
-                                        
-                                        if o1FeatWeights[(direc+1)//2,l2,k2]==INF:    # don't bother to consult the matrix if only checking BIO constraint
-                                            label = labels[l2]
-                                            kLabel = labels[k2]
-                                            if direc==1:
-                                                leftLabel, rightLabel = kLabel, label
-                                            else:
-                                                leftLabel, rightLabel = label, kLabel
-                                            
-                                            if not legalTagBigram(leftLabel, rightLabel, useBIO):
-                                                o1FeatWeights[(direc+1)//2,l2,k2] = NEGINF
-                                            elif hasFOF:
-                                                o1FeatWeights[(direc+1)//2,l2,k2] = weights[_ground0(featureIndexes[('prevLabel=',leftLabel)], (l2 if direc==1 else k2), indexerSize)]
-                                            else:
-                                                o1FeatWeights[(direc+1)//2,l2,k2] = 0.0
-                                            
-                                        score1s.append(score1 + o1FeatWeights[(direc+1)//2,l2,k2])
-                                else:
-                                    score1s.append(score1)
+                                score = max(score1s) if score1s else NEGINF
+                                o1FeatWeights[(direc+1)//2,lq,kq] = score
+                                
                             
                             # compute correct score based on previous scores
-                            score = max(score1s) if score1s else NEGINF
+                            score1 = dpValues[i-direc,k]    # NOT k2, because we are searching the degenerate lattice!
+                            
+                            score += score1
                             
                             # the score for the previous label is added on separately here,
                             # in order to avoid computing the whole score--which only 
@@ -376,6 +391,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                 if latticeColumnSize[i]<nLabels and backpointer==freqSortedLabelIndices[latticeColumnSize[i]]:    # best decoding uses a collapsed label at this position
                     # column-wise expansion
                     latticeColumnSize[i] = min(latticeColumnSize[i]*2, nLabels)
+                    nExpansions[i] += 1
                     iterate = True
                 else:   # best decoding uses an active label at this position
                     sent[i] = sent[i]._replace(prediction=labels[backpointer])
@@ -396,6 +412,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
             assert iterate or not reachedPrunedLabel,upper_bound
             '''
             firstiter = False
+            nIters += 1
             
         '''assert upper_bound==best_active,(upper_bound,best_active)'''
         return upper_bound
@@ -698,7 +715,8 @@ class DiscriminativeTagger(object):
         print('averaging:',averaging,'BIO:',useBIO,'costAug:',includeLossTerm,costAugVal, file=sys.stderr)
         
         MAX_NUM_TOKENS = 200
-        nLabels = len(self._labels)
+        nLabels = len(self._labels) # number of (actual) labels
+        nDegenerateLabels = int(math.ceil(math.log(nLabels,2)))  # for iterative Viterbi
         nWeights = len(self._labels)*len(self._featureIndexes)
         
         # create DP tables
@@ -709,7 +727,7 @@ class DiscriminativeTagger(object):
         dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
         dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
         o0Scores = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
-        o1FeatWeights = cvarray(shape=(2, nLabels, nLabels), itemsize=sizeof(float), format='f')
+        o1FeatWeights = cvarray(shape=(2, nLabels+nDegenerateLabels, nLabels+nDegenerateLabels), itemsize=sizeof(float), format='f')
         o1FeatWeights[:,:,:] = float('inf')    # INF = uninitialized. note that the contents do not depend on the sentence.
         
         update = (maxTrainIters>0)   # training?
