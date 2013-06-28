@@ -917,7 +917,7 @@ def main():
     
     if args.test is not None:
         #data = DiscriminativeTagger.loadSuperSenseData(args.test, t.getLabels())
-        data = SupersenseFeaturizer(SupersenseDataSet(args.test, t._labels), t._featureIndexes, cache_features=False)
+        data = SupersenseFeaturizer(SupersenseDataSet(args.test, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
         
         next(t.decode(data, maxTrainIters=0, averaging=(not args.no_averaging),
                       useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug))
