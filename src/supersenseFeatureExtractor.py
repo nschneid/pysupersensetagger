@@ -283,19 +283,20 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         # first sense features
         if sent.mostFrequentSenses is None or len(sent.mostFrequentSenses)!=len(sent):
             sent.mostFrequentSenses = extractFirstSensePredictedLabels(sent)
+            assert len(sent)==len(sent.mostFrequentSenses)
             
-        firstSense = sent.mostFrequentSenses[j];
+        firstSense = sent.mostFrequentSenses[j]
         
-        if firstSense is None: firstSense = "0";
+        if firstSense is None: firstSense = 'O'
         featureMap["firstSense=",firstSense] = 1
-        featureMap["firstSense+curTok=",firstSense,"\t",sent[j].stem] = 1
+        featureMap["firstSense+curTok=",firstSense,sent[j].stem] = 1
             
         useClusterFeatures = _options['useClusterFeatures']
         
         if useClusterFeatures:
             # cluster features for the current token
             curCluster = wordClusterID(sent[j].token)
-            featureMap["firstSense+curCluster=",firstSense,"\t",curCluster] = 1
+            featureMap["firstSense+curCluster=",firstSense,curCluster] = 1
             featureMap["curCluster=",curCluster] = 1
 
             
@@ -402,11 +403,12 @@ def extractFirstSensePredictedLabels(sent):
     phrase = None
     
     stems = [tok.stem for tok in sent]
-    poses = [tok.pos for tok in sent]
-    for i in range(len(sent)):
-        mostFrequentSense = None
+    coarse_poses = [tok.pos[0] for tok in sent]
+    i = 0
+    while i < len(sent):
+        mostFrequentSenseResult = None
         
-        pos = sent[i].pos
+        #pos = sent[i].pos
         '''
         for j in range(len(sent)-1, i-1, -1):
             #phrase = '_'.join(stems[i:j+1])    # SLOW
@@ -418,20 +420,21 @@ def extractFirstSensePredictedLabels(sent):
             if mostFrequentSense is not None: break
         '''
         
-        mostFrequentSense = getMostFrequentSensePrefix(stems[i:], poses[i:])
-        if mostFrequentSense:
-            wordParts, mostFrequentSense = mostFrequentSense
+        mostFrequentSenseResult = getMostFrequentSensePrefix(stems[i:], coarse_poses[i:])
+        if mostFrequentSenseResult:
+            wordParts, mostFrequentSense = mostFrequentSenseResult
             res.append(intern('B-'+mostFrequentSense))
             i += 1
             for word in wordParts[1:]:
                 res.append(intern('I-'+mostFrequentSense))
                 i += 1
         else:
-            res.append("0")
-        
+            res.append('O')
+            i += 1
+    
     return res
 
-def getMostFrequentSensePrefix(stems, poses):
+def getMostFrequentSensePrefix(stems, coarse_poses):
     '''
     Look up the most frequent sense of the words in a phrase and 
     their POSes.
@@ -441,18 +444,19 @@ def getMostFrequentSensePrefix(stems, poses):
         loadSenseDataOriginalFormat()
         
     pos2sense = senseTrie.longest(stems)
+    
     if pos2sense:
         prefix, pos2sense = pos2sense
-        if poses[0] in pos2sense:
-            return pos2sense[poses[0]]
-        elif poses[-1] in pos2sense:
-            return pos2sense[poses[-1]]
+        if coarse_poses[0] in pos2sense:
+            return prefix, pos2sense[coarse_poses[0]]
+        elif coarse_poses[-1] in pos2sense:
+            return prefix, pos2sense[coarse_poses[-1]]
         
         # neither the first nor last POS of the longest-matching 
         # series of words was a match. try a shorter prefix (rare).
-        stems, poses = stems[:len(prefix)-1], poses[:len(prefix)-1]
+        stems, coarse_poses = stems[:len(prefix)-1], coarse_poses[:len(prefix)-1]
         if stems:
-            return getMostFrequentSensePrefix(stems, poses)
+            return getMostFrequentSensePrefix(stems, coarse_poses)
     return None
 
 def loadSenseDataNewFormat():
@@ -511,7 +515,7 @@ def loadSenseDataOriginalFormat():
     _loadSenseFileOriginalFormat(nounFile, "N")
     verbFile = _options.setdefault("verbFile",DATADIR+"/oldgaz/VERBS_WS_SS.gz")
     _loadSenseFileOriginalFormat(verbFile, "V")
-
+    
     print("done.", file=sys.stderr)
 
 def _loadSenseFileOriginalFormat(senseFile, shortPOS):
