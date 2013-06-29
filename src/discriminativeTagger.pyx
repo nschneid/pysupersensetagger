@@ -52,6 +52,8 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
 
 #cdef float _scoreBound(float[:] weights, ):
 
+I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
+
 @memoize
 def legalTagBigram(lbl1, lbl2, useBIO=False):
         '''
@@ -71,13 +73,28 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
         considered legal.
         For the first token in the sequence, lbl1 should be null.
         '''
-        if useBIO and lbl2[0]=='I':
-            if lbl1 is None or lbl1=='O':
+        if not useBIO: return True
+        
+        assert lbl2 is None or lbl2[0] in {'O','B','I','o','b','i',I_BAR,I_TILDE,i_BAR,i_TILDE}
+        assert lbl1 is None or lbl1[0] in {'O','B','I','o','b','i',I_BAR,I_TILDE,i_BAR,i_TILDE}
+        
+        if lbl2 is None:
+            assert lbl1 is not None
+            if lbl1[0] not in {'O', 'I', I_BAR, I_TILDE}:
+                return False
+        elif lbl2[0] in {'o', 'b', 'I', I_BAR, I_TILDE}:
+            if lbl1 is None or lbl1[0] in {'O', 'b'}:
                 return False    # disallow O followed by an I tag
-            if (len(lbl1)>1)!=(len(lbl2)>1):
+            if lbl2 not in {'o', 'b'} and (len(lbl1)>1)!=(len(lbl2)>1):
                 return False    # only allow I without class if previous tag has no class
             if len(lbl2)>1 and lbl1[2:]!=lbl2[2:]:
                 return False    # disallow an I tag following a tag with a different class
+        elif lbl2[0] in {'i', i_BAR, i_TILDE}:
+            if lbl1 is None or lbl1[0] not in {'b', 'i'}:
+                return False
+        elif lbl2[0] in {'O', 'B'}:
+            if lbl1 is not None and lbl1[0] not in {'O', 'I', I_BAR, I_TILDE}:
+                return False
         return True
 
 cdef c_viterbi(sent, o0Feats, float[:] weights, 
@@ -135,6 +152,8 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                     # consider each possible previous label
                     for k,prevLabel in enumerate(labels):
                         if not legalTagBigram(prevLabel, label, useBIO):
+                            continue
+                        if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
                             continue
                         
                         # compute correct score based on previous scores
