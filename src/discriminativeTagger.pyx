@@ -143,9 +143,8 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
                 if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
-                        continue
-                
-                if i==0:
+                    maxScore = score = NEGINF
+                elif i==0:
                     score = score0
                     if not legalTagBigram(None, label, useBIO):
                         score = NEGINF
@@ -186,7 +185,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                             maxIndex = k
                     
                 dpValues[i,l] = maxScore
-                assert maxIndex>=0
+                #assert maxIndex>=0,(maxIndex,maxScore,i,nTokens,label) # BAD ASSERTION
                 dpBackPointers[i,l] = maxIndex
         
         # decode from the lattice
