@@ -142,6 +142,9 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                     if label=='O':
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
+                if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
+                        continue
+                
                 if i==0:
                     score = score0
                     if not legalTagBigram(None, label, useBIO):
@@ -152,8 +155,6 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                     # consider each possible previous label
                     for k,prevLabel in enumerate(labels):
                         if not legalTagBigram(prevLabel, label, useBIO):
-                            continue
-                        if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
                             continue
                         
                         # compute correct score based on previous scores
