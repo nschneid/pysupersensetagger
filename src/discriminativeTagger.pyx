@@ -186,6 +186,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                             maxIndex = k
                     
                 dpValues[i,l] = maxScore
+                assert maxIndex>=0
                 dpBackPointers[i,l] = maxIndex
         
         # decode from the lattice
@@ -193,6 +194,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
         
         # first, find the best label for the last token
         maxIndex, maxScore = max(enumerate(dpValues[nTokens-1]), key=operator.itemgetter(1))
+        assert maxIndex>=0
         
         # now proceed backwards, following backpointers
         for i in range(nTokens)[::-1]:
