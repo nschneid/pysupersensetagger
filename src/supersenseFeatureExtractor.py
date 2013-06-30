@@ -345,20 +345,39 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             
         if _options['usePOSNeighborFeatures']:    # new feature
             sentpos = ''.join(coarsen(w.pos) for w in sent)
+            cposj = coarsen(sent[j].pos)
             for cpos in 'VN^ITPJRDM#&':
+                if {cpos,cposj} not in [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
+                                        {'J','N'},{'N','N'},{'D','N'},{'D','^'},{'N','^'},{'^','^'},
+                                        {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]:
+                    continue
                 if cpos in sentpos[:j]:
                     k = sentpos.rindex(cpos,0,j)
-                    featureMap[cpos,'<-{}'.format(k-j),coarsen(sent[j].pos)] = 1
-                    featureMap[cpos,'<',sent[k].stem,coarsen(sent[j].pos)] = 1
-                    if _options['useBigramFeatures']:
-                        featureMap[cpos,'<-{}'.format(k-j),sent[j].stem] = 1
+                    bindist = k-j
+                    if abs(bindist)>5:
+                        if abs(bindist)<10:
+                            bindist = 6 if bindist>0 else -6
+                        else:
+                            bindist //= 10
+                            bindist *= 10
+                    featureMap[cpos,'<-{}'.format(bindist),cposj] = 1
+                    featureMap[cpos,'<',sent[k].stem,cposj] = 1
+                    if _options['useBigramFeatures'] and abs(bindist)<6:
+                        featureMap[cpos,'<-{}'.format(bindist),sent[j].stem] = 1
                         featureMap[cpos,'<',sent[k].stem,sent[j].stem] = 1
                 if cpos in sentpos[j+1:]:
                     k = sentpos.index(cpos,j+1)
-                    featureMap[cpos,'{}->'.format(k-j),coarsen(sent[j].pos)] = 1
-                    featureMap[cpos,'>',sent[k].stem,coarsen(sent[j].pos)] = 1
-                    if _options['useBigramFeatures']:
-                        featureMap[cpos,'{}->'.format(k-j),sent[j].stem] = 1
+                    bindist = k-j
+                    if abs(bindist)>5:
+                        if abs(bindist)<10:
+                            bindist = 6 if bindist>0 else -6
+                        else:
+                            bindist //= 10
+                            bindist *= 10
+                    featureMap[cpos,'{}->'.format(bindist),cposj] = 1
+                    featureMap[cpos,'>',sent[k].stem,cposj] = 1
+                    if _options['useBigramFeatures'] and abs(bindist)<6:
+                        featureMap[cpos,'{}->'.format(bindist),sent[j].stem] = 1
                         featureMap[cpos,'>',sent[k].stem,sent[j].stem] = 1
         
         
