@@ -12,10 +12,11 @@ DATADIR = SRCDIR+'/../data'
 
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
-            'useBigramFeatures': False, # token bigrams
+            'useBigramFeatures': True, # token bigrams
             'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
             "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
-            "useOldDataFormat": True}
+            "useOldDataFormat": True,
+            'usePOSNeighborFeatures': True}
 
 def registerOpts(program_args):
     _options['usePrevLabel'] = not program_args.excludeFirstOrder
@@ -24,6 +25,22 @@ clusterMap = None
 
 startSymbol = None
 endSymbol = None
+
+
+def memoize(f):
+    """
+    Memoization decorator for a function taking one or more arguments.
+    Source: http://code.activestate.com/recipes/578231-probably-the-fastest-memoization-decorator-in-the-/#c4 
+    """
+    class memodict(dict):
+        def __getitem__(self, *key):
+            return dict.__getitem__(self, key)
+
+        def __missing__(self, key):
+            ret = self[key] = f(*key)
+            return ret
+
+    return memodict().__getitem__
 
 
 class Trie(object):
@@ -241,7 +258,15 @@ class IndexedFeatureMap(object):
     def __repr__(self):
         return 'IndexedFeatureMap(['+', '.join(map(repr,self.named_items()))+'])'
 
-
+@memoize
+def coarsen(pos):
+    
+    if pos=='TO': return 'I'
+    elif pos.startswith('NNP'): return '^'
+    elif pos=='CC': return '&'
+    elif pos=='CD': return '#'
+    elif pos=='RP': return 'T'
+    else: return pos[0]
 
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None):
     '''
@@ -301,68 +326,42 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
 
             
         
-        # word and POS features
-        curPOS = sent[j].pos
-        if curPOS=="NN" or curPOS=="NNS":
-            featureMap["curPOS_common",] = 1
-        if curPOS=="NNP" or curPOS=="NNPS":
-            featureMap["curPOS_proper",] = 1
-            
-        featureMap["curTok=",sent[j].stem] = 1
-        featureMap["curPOS=",curPOS] = 1
-        featureMap["curPOS_0=",curPOS[0]] = 1
-        
-        
         useBigramFeatures = _options['useBigramFeatures']   # note: these are observation bigrams, not tag bigrams
         
-        if j>0:
-            featureMap["prevTok=",sent[j-1].stem] = 1
-            if useBigramFeatures: featureMap["prevTok+curTok=",sent[j-1].stem,"\t",sent[j].stem] = 1
-            featureMap["prevPOS=",sent[j-1].pos] = 1
-            featureMap["prevPOS_0=",sent[j-1].pos[0]] = 1
-            if useClusterFeatures: featureMap["prevCluster=",wordClusterID(sent[j-1].token)] = 1
-            #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
-            
-        if j+1<len(sent):
-            featureMap["nextTok=",sent[j+1].stem] = 1
-            if useBigramFeatures: featureMap["nextTok+curTok=",sent[j+1].stem,"\t",sent[j].stem] = 1
-            featureMap["nextPOS=",sent[j+1].pos] = 1
-            featureMap["nextPOS_0=",sent[j+1].pos[0]] = 1
-            if useClusterFeatures: featureMap["nextCluster=",wordClusterID(sent[j+1].token)] = 1
-            #if useClusterFeatures: featureMap["firstSense+nextCluster="+firstSense+"\t"+nextCluster] = 1
-    
-            
-        if j-1>0:
-            featureMap["prev2Tok=",sent[j-2].stem] = 1
-            featureMap["prev2POS=",sent[j-2].pos] = 1
-            featureMap["prev2POS_0=",sent[j-2].pos[0]] = 1
-            if useClusterFeatures: featureMap["prev2Cluster=",wordClusterID(sent[j-2].token)] = 1
-            #if useClusterFeatures: featureMap["firstSense+prev2Cluster="+firstSense+"\t"+prev2Cluster] = 1
-            
-        if j+2<len(sent):
-            featureMap["next2Tok=",sent[j+2].stem] = 1
-            featureMap["next2POS=",sent[j+2].pos] = 1
-            featureMap["next2POS_0=",sent[j+2].pos[0]] = 1
-            if useClusterFeatures: featureMap["next2Cluster=",wordClusterID(sent[j+2].token)] = 1
-            #if useClusterFeatures: featureMap["firstSense+next2Cluster="+firstSense+"\t"+next2Cluster] = 1
-            
-            
-        # word shape features
+        if useBigramFeatures:
+            if j>0:
+                featureMap["prevStem+curStem=",sent[j-1].stem,"\t",sent[j].stem] = 1
+            if j+1<len(sent):
+                featureMap["nextStem+curStem=",sent[j+1].stem,"\t",sent[j].stem] = 1
         
-        featureMap["curShape=",sent[j].shape] = 1
+        for k in range(max(0,j-2),min(len(sent),j+3)):
+            delta = '@{}='.format(k-j) if k!=j else ''
+            featureMap["stem"+delta,sent[k].stem] = 1
+            featureMap["pos"+delta,sent[k].pos] = 1
+            featureMap["cpos"+delta,coarsen(sent[k].pos)] = 1
+            if useClusterFeatures: featureMap["cluster"+delta,wordClusterID(sent[k].token)] = 1
+            #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
+            featureMap["shape"+delta,sent[k].shape] = 1
             
-        if j>0:
-            featureMap["prevShape=",sent[j-1].shape] = 1
-            
-        if j+1<len(sent):
-            featureMap["nextShape=",sent[j+1].shape] = 1
-            
-        if j-1>0:
-            featureMap["prev2Shape=",sent[j-2].shape] = 1
-            
-        if j+2<len(sent):
-            featureMap["next2Shape=",sent[j+2].shape] = 1
-            
+        if _options['usePOSNeighborFeatures']:    # new feature
+            sentpos = ''.join(coarsen(w.pos) for w in sent)
+            for cpos in 'VN^ITPJRDM#&':
+                if cpos in sentpos[:j]:
+                    k = sentpos.rindex(cpos,0,j)
+                    featureMap[cpos,'<-{}'.format(k-j),coarsen(sent[j].pos)] = 1
+                    featureMap[cpos,'<',sent[k].stem,coarsen(sent[j].pos)] = 1
+                    if _options['useBigramFeatures']:
+                        featureMap[cpos,'<-{}'.format(k-j),sent[j].stem] = 1
+                        featureMap[cpos,'<',sent[k].stem,sent[j].stem] = 1
+                if cpos in sentpos[j+1:]:
+                    k = sentpos.index(cpos,j+1)
+                    featureMap[cpos,'{}->'.format(k-j),coarsen(sent[j].pos)] = 1
+                    featureMap[cpos,'>',sent[k].stem,coarsen(sent[j].pos)] = 1
+                    if _options['useBigramFeatures']:
+                        featureMap[cpos,'{}->'.format(k-j),sent[j].stem] = 1
+                        featureMap[cpos,'>',sent[k].stem,sent[j].stem] = 1
+        
+        
         firstCharCurTok = sent[j].token[0]
         if firstCharCurTok.lower()==firstCharCurTok:
             featureMap["curTokLowercase",] = 1
