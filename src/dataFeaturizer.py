@@ -119,11 +119,16 @@ class SupersenseFeaturizer(object):
                     o0FeatsEachToken.append(o0FeatureMap)
                     
                 if self._features is not None:
+                    assert len(self._features)==j
                     self._features.append(o0FeatsEachToken)
                 
                 yield sent,o0FeatsEachToken
             else:
                 yield sent,self._features[j]
-                
+    
+    def enable_caching(self):
+        if self._features is None:
+            self._features = []
+    
     def reset(self):
         self._data.reset()

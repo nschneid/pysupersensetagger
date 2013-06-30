@@ -6,6 +6,7 @@ Ported from Michael Heilman's SuperSenseFeatureExtractor.java
 '''
 from __future__ import print_function, division
 import sys, os, re, gzip
+from collections import Counter
 
 SRCDIR = os.path.dirname(os.path.abspath(__file__))
 DATADIR = SRCDIR+'/../data'
@@ -161,11 +162,27 @@ def wordClusterID(word):
 
 
 class SequentialStringIndexer(object):
-    def __init__(self):
+    '''Feature alphabet. Optional cutoff threshold; count is determined by the number of 
+    calls to add() or setdefault() before calling freeze().'''
+    def __init__(self, cutoff=None):
         self._s2i = {}
         self._i2s = []
         self._frozen = False
+        self._cutoff = cutoff
+        if self._cutoff is not None:
+            self._counts = Counter()
+    def setcount(self, k, n):
+        '''Store a count for the associated entry. Useful for entries that should be 
+        kept when thresholding but which might not be counted by calls to add()/setdefault().'''
+        i = k if isinstance(k,int) else self._s2i[k]
+        self._counts[i] = n
     def freeze(self):
+        '''Locks the alphabet so it can no longer be modified and filters 
+        according to the cutoff threshold (if specified).'''
+        if self._cutoff is not None:  # apply feature cutoff (threshold)
+            self._i2s = [s for i,s in enumerate(self._i2s) if self._counts[i]>=self._cutoff]
+            del self._counts
+            self._s2i = {s: i for i,s in enumerate(self._i2s)}
         self._frozen = True
         self._len = len(self._i2s)  # cache the length for efficiency
     def unfreeze(self):
@@ -191,8 +208,13 @@ class SequentialStringIndexer(object):
         if s not in self:
             if self.is_frozen():
                 raise ValueError('Cannot add new item to frozen indexer: '+s)
-            self._s2i[s] = len(self._i2s)
+            self._s2i[s] = i = len(self._i2s)
             self._i2s.append(s)
+        elif not self.is_frozen() and self._cutoff is not None:
+            i = self[s]
+        if not self.is_frozen() and self._cutoff is not None:
+            # update count
+            self._counts[i] += 1
     def setdefault(self, k):
         '''looks up k, adding it if necessary'''
         self.add(k)
@@ -207,7 +229,9 @@ class SequentialStringIndexer(object):
         return enumerate(self._i2s)
 
 class IndexedStringSet(set):
-    '''Wraps a set contains indices to strings, with mapping provided in an indexer.'''
+    '''Wraps a set contains indices to strings, with mapping provided in an indexer.
+    Used to hold the features active for a particular instance.
+    '''
     def __init__(self, indexer):
         self._indexer = indexer
         self._indices = set()
@@ -233,6 +257,7 @@ class IndexedStringSet(set):
         return self._indexer[k]
 
 class IndexedFeatureMap(object):
+    '''The feature-value mapping for a particular instance.'''
     def __init__(self, indexer, default=1):
         self._set = IndexedStringSet(indexer)
         self._map = {}

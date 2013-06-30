@@ -426,8 +426,8 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         return upper_bound
 
 class DiscriminativeTagger(object):
-    def __init__(self):
-        self._featureIndexes = supersenseFeatureExtractor.SequentialStringIndexer()
+    def __init__(self, cutoff=None):
+        self._featureIndexes = supersenseFeatureExtractor.SequentialStringIndexer(cutoff=cutoff)
         self._weights = None
         self._labels = []
         self._labelC = Counter()
@@ -632,6 +632,12 @@ class DiscriminativeTagger(object):
         
         trainingData.reset()
         
+        # ensure these aren't filtered by a feature cutoff
+        if self._featureIndexes._cutoff is not None:
+            for label in self._labels:
+                self._featureIndexes.setcount(('prevLabel=', label), self._featureIndexes._cutoff)
+        
+        self._featureIndexes.freeze()
         
         # now create the array of feature weights
         nWeights = len(self._labels)*len(self._featureIndexes)
@@ -642,7 +648,6 @@ class DiscriminativeTagger(object):
         self._freqSortedLabelIndices = list(range(len(self._labels)))
         self._freqSortedLabelIndices.sort(key=lambda l: self._labelC[l], reverse=True)
         
-        self._featureIndexes.freeze()
     
     def _computeScore(self, featureMap, weights, labelIndex):
         '''Compute the dot product of a set of feature values and the corresponding weights.'''
@@ -691,6 +696,7 @@ class DiscriminativeTagger(object):
         # create feature vocabulary for the training data
         assert trainingData
         self._createFeatures(trainingData)
+        trainingData.enable_caching()   # don't cache before the featureset is finalized!
         
         # save features
         if developmentMode and savePrefix is not None:
@@ -887,6 +893,7 @@ def main():
     
     # formerly: "useFeatureNumber"
     flag("excludeFeatures","Comma-separated list of (0-based) column numbers to ignore when reading feature files. (Do not specify column 0; use --no-lex instead.)", default='')
+    flag("cutoff", "Threshold (minimum number of occurrences) of a feature for it to be included in the model", ftype=int, default=None)
     
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
@@ -907,7 +914,7 @@ def main():
         #t.setBinaryFeats(False)
         print('done.', file=sys.stderr)
     else:
-        t = DiscriminativeTagger()
+        t = DiscriminativeTagger(cutoff=args.cutoff)
         #t.setBinaryFeats(False)
         labels = DiscriminativeTagger.loadLabelList(args.labels, args.legacy0)
         t._labels = labels  # TODO: "private" access
@@ -917,7 +924,7 @@ def main():
         
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
-            trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=True)
+            trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
             
             t.train(trainingData, args.save, maxIters=args.iters, averaging=(not args.no_averaging), 
                     developmentMode=args.debug, 
