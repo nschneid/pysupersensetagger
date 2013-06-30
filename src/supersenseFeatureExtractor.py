@@ -13,11 +13,11 @@ DATADIR = SRCDIR+'/../data'
 
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
-            'useBigramFeatures': True, # token bigrams
+            'useBigramFeatures': False, # token bigrams
             'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
             "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
             "useOldDataFormat": True,
-            'usePOSNeighborFeatures': True}
+            'usePOSNeighborFeatures': False}
 
 def registerOpts(program_args):
     _options['usePrevLabel'] = not program_args.excludeFirstOrder
