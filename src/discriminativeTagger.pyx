@@ -687,11 +687,14 @@ class DiscriminativeTagger(object):
             print('---')
             assert c_score==i_score,(c_score,i_score)
 
-    def train(self, trainingData, savePrefix, averaging=False, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
+    def train(self, trainingData, savePrefix, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
         assert maxIters>0,maxIters
-        print('training with the perceptron for up to',maxIters,'iterations', file=sys.stderr)
+        assert earlyStopInterval is None or tuningData is not None
+        print('training with the perceptron for up to',maxIters,'iterations', 
+              ('with early stopping by checking the tuning data every {} iterations'.format(earlyStopInterval) if earlyStopInterval is not None else ''),
+              file=sys.stderr)
         
         # create feature vocabulary for the training data
         assert trainingData
@@ -703,6 +706,9 @@ class DiscriminativeTagger(object):
             # print features before training
             with open(savePrefix+'.features', 'w') as outF:
                 self.printFeatures(outF)
+        
+        prevNCorrect = None
+        nTuning = None
         
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
@@ -717,6 +723,22 @@ class DiscriminativeTagger(object):
                     self.saveModel(savePrefix+'.'+str(i))
                     with open(savePrefix+'.'+str(i)+'.weights', 'w') as outF:
                         self.printWeights(outF, weights)
+                        
+            if earlyStopInterval is not None and i<maxIters-1 and (i+1)%earlyStopInterval==0:
+                # decode on tuning data and decide whether to stop
+                next(self.decode(tuningData, maxTrainIters=0, averaging=averaging,
+                      useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal))
+                nCorrect = nTuning = 0
+                for sent,o0Feats in tuningData:
+                    # TODO: evaluate cost rather than tag accuracy?
+                    nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
+                    nTuning += len(sent)
+                if prevNCorrect is not None and nCorrect <= prevNCorrect:
+                    print('stopping early after iteration',i,
+                          '. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
+                                                                                              prevNCorrect,nTuning,prevNCorrect/nTuning))
+                    break
+                prevNCorrect = nCorrect
         
         # save model
         if savePrefix is not None:
@@ -875,6 +897,7 @@ def main():
     flag("train", "Path to training data feature file")
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
+    flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early", ftype=int, default=None)
     flag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
     flag("labels", "List of possible labels, one label per line")
@@ -907,6 +930,8 @@ def main():
     
     supersenseFeatureExtractor.registerOpts(args)
     
+    testData = None
+    
     if args.load is not None:
         print('loading model from',args.load,'...', file=sys.stderr)
         t = DiscriminativeTagger.loadModel(args.load)
@@ -925,8 +950,12 @@ def main():
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
             trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
-            
+            if args.test is not None or args.test_predict is not None:
+                testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+                
             t.train(trainingData, args.save, maxIters=args.iters, averaging=(not args.no_averaging), 
+                    earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
+                    tuningData=testData,
                     developmentMode=args.debug, 
                     useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug)
             
@@ -936,16 +965,15 @@ def main():
     
     
     if args.test is not None or args.test_predict is not None:
+        if testData is None:
+            testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
         
-        #data = DiscriminativeTagger.loadSuperSenseData(args.test, t.getLabels())
-        data = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
-        
-        next(t.decode(data, maxTrainIters=0, averaging=(not args.no_averaging),
+        next(t.decode(testData, maxTrainIters=0, averaging=(not args.no_averaging),
                       useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug))
         
         if not args.test:
             # print predictions
-            for sent,o0Feats in data:
+            for sent,o0Feats in testData:
                 for tok in sent:
                     print(tok.token.encode('utf-8'), tok.prediction.encode('utf-8'), sep='\t')
                 print()
