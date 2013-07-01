@@ -926,6 +926,9 @@ def main():
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
+    # features
+    boolflag("bigrams", "Token bigram features")
+    
     args = opts.parse_args()
     
     if args.train is None and args.load is None:

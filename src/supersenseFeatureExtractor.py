@@ -21,6 +21,7 @@ _options = {'usePrefixAndSuffixFeatures': False,
 
 def registerOpts(program_args):
     _options['usePrevLabel'] = not program_args.excludeFirstOrder
+    _options['useBigramFeatures'] = program_args.bigrams
 
 clusterMap = None
 
@@ -180,7 +181,9 @@ class SequentialStringIndexer(object):
         '''Locks the alphabet so it can no longer be modified and filters 
         according to the cutoff threshold (if specified).'''
         if self._cutoff is not None:  # apply feature cutoff (threshold)
+            assert self._counts
             self._i2s = [s for i,s in enumerate(self._i2s) if self._counts[i]>=self._cutoff]
+            if 0<=self._cutoff<=1: assert len(self._i2s)==len(self._s2i)
             del self._counts
             self._s2i = {s: i for i,s in enumerate(self._i2s)}
         self._frozen = True
