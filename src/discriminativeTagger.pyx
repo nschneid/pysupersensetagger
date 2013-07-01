@@ -713,7 +713,9 @@ class DiscriminativeTagger(object):
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
                                                useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal)):
-            # store the weights in an attribute
+            
+            # hold on to the previous weights and store the new weights in an attribute
+            prevWeights = self._weights
             self._weights = weights
             
             # if dev mode, save each model and human-readable weights file
@@ -724,6 +726,7 @@ class DiscriminativeTagger(object):
                     with open(savePrefix+'.'+str(i)+'.weights', 'w') as outF:
                         self.printWeights(outF, weights)
                         
+            
             if earlyStopInterval is not None and i<maxIters-1 and (i+1)%earlyStopInterval==0:
                 # decode on tuning data and decide whether to stop
                 next(self.decode(tuningData, maxTrainIters=0, averaging=averaging,
@@ -736,7 +739,9 @@ class DiscriminativeTagger(object):
                 if prevNCorrect is not None and nCorrect <= prevNCorrect:
                     print('stopping early after iteration',i,
                           '. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
-                                                                                              prevNCorrect,nTuning,prevNCorrect/nTuning))
+                                                                                              prevNCorrect,nTuning,prevNCorrect/nTuning),
+                          file=sys.stderr)
+                    self._weights = prevWeights # the last model that posted an improvement
                     break
                 prevNCorrect = nCorrect
         
