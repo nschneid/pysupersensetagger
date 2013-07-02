@@ -730,7 +730,7 @@ class DiscriminativeTagger(object):
             if earlyStopInterval is not None and i<maxIters-1 and (i+1)%earlyStopInterval==0:
                 # decode on tuning data and decide whether to stop
                 next(self.decode(tuningData, maxTrainIters=0, averaging=averaging,
-                      useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal))
+                      useBIO=useBIO, includeLossTerm=False, costAugVal=0.0))
                 nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
                     # TODO: evaluate cost rather than tag accuracy?
@@ -980,7 +980,7 @@ def main():
             testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
         
         next(t.decode(testData, maxTrainIters=0, averaging=(not args.no_averaging),
-                      useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug))
+                      useBIO=args.bio, includeLossTerm=False, costAugVal=0.0))
         
         if not args.test:
             # print predictions
