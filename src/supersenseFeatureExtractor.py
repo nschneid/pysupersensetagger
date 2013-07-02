@@ -22,6 +22,9 @@ _options = {'usePrefixAndSuffixFeatures': False,
 def registerOpts(program_args):
     _options['usePrevLabel'] = not program_args.excludeFirstOrder
     _options['useBigramFeatures'] = program_args.bigrams
+    _options['useClusterFeatures'] = program_args.clusters
+    _options['clusterFile'] = program_args.cluster_file
+    _options['usePOSNeighborFeatures'] = program_args.pos_neighbors
 
 clusterMap = None
 
@@ -134,7 +137,7 @@ senseCountMap = {} # pos -> {word -> number of senses}
 possibleSensesMap = {} # stem -> set of possible supersenses
 
 
-def loadDefaults():
+def loadDefaults(oldClusterFormat=False):
     # TODO: properties allowing for override of _options defaults
     global clusterMap
     if _options['useClusterFeatures'] and clusterMap is None:
@@ -143,12 +146,19 @@ def loadDefaults():
         clusterMap = {}
         clusterFile = _options['clusterFile']
         with gzip.open(clusterFile) as clusterF:
-            clusterID = 0
-            for ln in clusterF:
-                parts = re.split(r'\\s', ln)
-                for part in parts:
-                    clusterMap[part] = clusterID
-                clusterID += 1
+            if oldClusterFormat:    # each line is a cluster, with space-separated words
+                clusterID = 0
+                for ln in clusterF:
+                    ww = re.split(r'\s', ln)
+                    for w in ww:
+                        clusterMap[w] = clusterID
+                    clusterID += 1
+            else:   # each line contains a cluster ID (bitstring for Brown clusters), a word type, and a count
+                for ln in clusterF:
+                    clusterID, w, n = ln[:-1].split('\t')
+                    clusterMap[w.decode('utf-8')] = clusterID
+                    
+                
         print("done.", file=sys.stderr);
         
 
@@ -362,12 +372,20 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             if j+1<len(sent):
                 featureMap["nextStem+curStem=",sent[j+1].stem,"\t",sent[j].stem] = 1
         
+        if useClusterFeatures: clusterj = wordClusterID(sent[j].token)
         for k in range(max(0,j-2),min(len(sent),j+3)):
             delta = '@{}='.format(k-j) if k!=j else ''
             featureMap["stem"+delta,sent[k].stem] = 1
             featureMap["pos"+delta,sent[k].pos] = 1
             featureMap["cpos"+delta,coarsen(sent[k].pos)] = 1
-            if useClusterFeatures: featureMap["cluster"+delta,wordClusterID(sent[k].token)] = 1
+            if useClusterFeatures:
+                cluster = wordClusterID(sent[k].token)
+                featureMap["cluster"+delta,cluster] = 1
+                if k!=j: featureMap["cluster+cluster"+delta,clusterj,cluster] = 1
+                if cluster!='UNK':
+                    for prefixlen in range(3,max(len(cluster),len(clusterj)),2): # even-length prefixes of the bitstring (cluster ID stats with "C")
+                        featureMap["cluster"+delta,'c'+cluster[1:prefixlen]] = 1
+                        if k!=j: featureMap["cluster+cluster"+delta,'c'+clusterj[1:prefixlen],'c'+cluster[1:prefixlen]] = 1
             #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
             featureMap["shape"+delta,sent[k].shape] = 1
             
