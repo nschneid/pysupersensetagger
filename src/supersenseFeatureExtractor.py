@@ -16,6 +16,7 @@ _options = {'usePrefixAndSuffixFeatures': False,
             'useClusterPrefixFeatures': False,
             'useBigramFeatures': False, # token bigrams
             'useFirstSensePlusToken': False,
+            'useContextPOSFilter': False,
             'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
             "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
             "useOldDataFormat": True,
@@ -27,6 +28,7 @@ def registerOpts(program_args):
     _options['useClusterFeatures'] = program_args.clusters
     _options['clusterFile'] = program_args.cluster_file
     _options['usePOSNeighborFeatures'] = program_args.pos_neighbors
+    _options['useContextPOSFilter'] = program_args.cxt_pos_filter
     
     loadDefaults()
 
@@ -310,6 +312,10 @@ def coarsen(pos):
     elif pos=='RP': return 'T'
     else: return pos[0]
 
+CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
+              {'J','N'},{'N','N'},{'D','N'},{'D','^'},{'N','^'},{'^','^'},
+              {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]
+
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None):
     '''
     Extracts a map of feature names to values for a particular token in a sentence.
@@ -374,9 +380,11 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         
         if useBigramFeatures:
             if j>0:
-                featureMap["prevStem+curStem=",sent[j-1].stem,"\t",sent[j].stem] = 1
+                if not _options['useContextPOSFilter'] or {coarsen(sent[j-1].pos),coarsen(sent[j].pos)} in CPOS_PAIRS:
+                    featureMap["prevStem+curStem=",sent[j-1].stem,"\t",sent[j].stem] = 1
             if j+1<len(sent):
-                featureMap["nextStem+curStem=",sent[j+1].stem,"\t",sent[j].stem] = 1
+                if not _options['useContextPOSFilter'] or {coarsen(sent[j+1].pos),coarsen(sent[j].pos)} in CPOS_PAIRS:
+                    featureMap["nextStem+curStem=",sent[j+1].stem,"\t",sent[j].stem] = 1
         
         if useClusterFeatures: clusterj = wordClusterID(sent[j].token)
         for k in range(max(0,j-2),min(len(sent),j+3)):
@@ -399,9 +407,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             sentpos = ''.join(coarsen(w.pos) for w in sent)
             cposj = coarsen(sent[j].pos)
             for cpos in 'VN^ITPJRDM#&':
-                if {cpos,cposj} not in [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
-                                        {'J','N'},{'N','N'},{'D','N'},{'D','^'},{'N','^'},{'^','^'},
-                                        {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]:
+                if {cpos,cposj} not in CPOS_PAIRS:
                     continue
                 if cpos in sentpos[:j]:
                     k = sentpos.rindex(cpos,0,j)

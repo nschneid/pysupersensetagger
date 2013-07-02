@@ -928,6 +928,7 @@ def main():
     
     # features
     boolflag("bigrams", "Token bigram features")
+    boolflag("cxt-pos-filter", "Filter bigram features based on the POS pairs")
     boolflag("clusters", "Word cluster features")
     flag("cluster-file", "Path to file with word clusters", default=supersenseFeatureExtractor._options['clusterFile'])
     boolflag("pos-neighbors", "POS neighbor features")
