@@ -814,7 +814,8 @@ class DiscriminativeTagger(object):
             for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
                 
                 self._viterbi(sent, o0Feats, currentWeights, dpValuesFwd, dpValuesBwd, dpBackPointers,
-                              o0Scores, o1FeatWeights, includeLossTerm=False, costAugVal=0.0, useBIO=useBIO)
+                              o0Scores, o1FeatWeights, includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
+                              useBIO=useBIO)
         
                 if update:
                     nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights)
