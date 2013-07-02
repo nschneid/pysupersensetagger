@@ -13,6 +13,7 @@ DATADIR = SRCDIR+'/../data'
 
 _options = {'usePrefixAndSuffixFeatures': False, 
             'useClusterFeatures': False, 
+            'useClusterPrefixFeatures': False,
             'useBigramFeatures': False, # token bigrams
             'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
             "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
@@ -358,13 +359,14 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             
         useClusterFeatures = _options['useClusterFeatures']
         
+        '''
         if useClusterFeatures:
             # cluster features for the current token
             curCluster = wordClusterID(sent[j].token)
             featureMap["firstSense+curCluster=",firstSense,curCluster] = 1
             featureMap["curCluster=",curCluster] = 1
-
-            
+        '''
+         
         
         useBigramFeatures = _options['useBigramFeatures']   # note: these are observation bigrams, not tag bigrams
         
@@ -384,10 +386,10 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 cluster = wordClusterID(sent[k].token)
                 featureMap["cluster"+delta,cluster] = 1
                 if k!=j: featureMap["cluster+cluster"+delta,clusterj,cluster] = 1
-                if cluster!='UNK':
+                if _options['useClusterPrefixFeatures'] and cluster!='UNK':
                     for prefixlen in range(3,max(len(cluster),len(clusterj)),2): # even-length prefixes of the bitstring (cluster ID stats with "C")
                         featureMap["cluster"+delta,'c'+cluster[1:prefixlen]] = 1
-                        if k!=j: featureMap["cluster+cluster"+delta,'c'+clusterj[1:prefixlen],'c'+cluster[1:prefixlen]] = 1
+                        if k!=j and clusterj!='UNK': featureMap["cluster+cluster"+delta,'c'+clusterj[1:prefixlen],'c'+cluster[1:prefixlen]] = 1
             #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
             featureMap["shape"+delta,sent[k].shape] = 1
             
