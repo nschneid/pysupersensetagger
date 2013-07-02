@@ -25,6 +25,8 @@ def registerOpts(program_args):
     _options['useClusterFeatures'] = program_args.clusters
     _options['clusterFile'] = program_args.cluster_file
     _options['usePOSNeighborFeatures'] = program_args.pos_neighbors
+    
+    loadDefaults()
 
 clusterMap = None
 
