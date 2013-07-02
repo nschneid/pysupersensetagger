@@ -15,6 +15,7 @@ _options = {'usePrefixAndSuffixFeatures': False,
             'useClusterFeatures': False, 
             'useClusterPrefixFeatures': False,
             'useBigramFeatures': False, # token bigrams
+            'useFirstSensePlusToken': False,
             'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
             "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
             "useOldDataFormat": True,
@@ -355,8 +356,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         
         if firstSense is None: firstSense = 'O'
         featureMap["firstSense=",firstSense] = 1
-        featureMap["firstSense+curTok=",firstSense,sent[j].stem] = 1
-            
+        if _options['useFirstSensePlusToken']:
+            featureMap["firstSense+curTok=",firstSense,sent[j].stem] = 1
+        
         useClusterFeatures = _options['useClusterFeatures']
         
         '''
