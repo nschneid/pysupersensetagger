@@ -916,6 +916,7 @@ def main():
     # formerly only allowed in properties file
     boolflag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", default=False)
     boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
+    boolflag("includeLossTerm", "Incur a cost of (at least) 1 whenever making a tagging error during training.")
     flag("costAug", "Value of cost penalty for errors against recall (for recall-oriented learning)", ftype=float, default=0.0)
     boolflag("excludeFirstOrder", "Do not include label bigram features", default=False)
     
@@ -969,7 +970,7 @@ def main():
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
                     tuningData=testData,
                     developmentMode=args.debug, 
-                    useBIO=args.bio, includeLossTerm=(args.costAug!=0.0), costAugVal=args.costAug)
+                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug)
             
             del trainingData
         else:
