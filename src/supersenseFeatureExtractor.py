@@ -5,8 +5,8 @@ Ported from Michael Heilman's SuperSenseFeatureExtractor.java
 @since: 2012-07-22
 '''
 from __future__ import print_function, division
-import sys, os, re, gzip
-from collections import Counter
+import sys, os, re, gzip, codecs, json
+from collections import Counter, defaultdict
 
 SRCDIR = os.path.dirname(os.path.abspath(__file__))
 DATADIR = SRCDIR+'/../data'
@@ -31,8 +31,10 @@ def registerOpts(program_args):
     _options['useContextPOSFilter'] = program_args.cxt_pos_filter
     
     loadDefaults()
+    loadLexicons(program_args.lex)
 
 clusterMap = None
+lexicons = defaultdict(list)
 
 startSymbol = None
 endSymbol = None
@@ -167,6 +169,70 @@ def loadDefaults(oldClusterFormat=False):
                 
         print("done.", file=sys.stderr);
         
+
+def loadLexicons(lexfiles):
+    global lexicons
+    # index each entry by longest word
+    for lexfile in lexfiles:
+        for ln in lexfile:
+            entry = json.loads(ln[:-1].decode('utf-8'))
+            if not any(w for w in entry["words"] if len(w)>2):
+                continue    # probably garbage entry
+            if entry["words"][-1]=='the':
+                continue    # probably garbage entry
+            key = sorted(entry["words"], key=lambda w: (len(w),w))[0]
+            lexicons[key].append(entry)
+
+def extractLexiconCandidates(sent, lowercase=True, stem=False):
+    sent_cands = []
+    contig = defaultdict(list)
+    gappy = []
+    tokmap = defaultdict(set)
+    for j,t in enumerate(sent):
+        tokmap[t.token].add(j)
+    toks = set(tokmap.keys())
+    sent_words = [t.token.lower() if lowercase else t.token for t in sent]
+    for tok in toks:
+        if tok in lexicons:
+            for entry in lexicons[tok]:
+                entry_words = [w.lower() if lowercase else w for w in entry["words"]]
+                entry["words"] = entry_words
+                if set(entry_words)<=toks:  # all entry words are in the sentence
+                    if entry not in sent_cands:
+                        sent_cands.append(entry)
+                    entryLen = len(entry_words)
+                    isContig = False  # can this occurrence be contiguous?
+                    for j in tokmap[tok]:
+                        for i in range(max(j-entryLen,0),min(j+entryLen,len(sent))):
+                            # all matched-length spans of the sentence including j
+                            if set(sent_words[j-i:j-i+entryLen])==set(entry_words):
+                                # found a contiguous occurrence! not necessarily matching the order of words in the entry
+                                isContig = True
+                                for k in range(i,i+entryLen):
+                                    contig[k].append((i, entry))
+                                    
+                    if not isContig and entry not in gappy:
+                        if not any(len(w)>3 for w in entry_words):
+                            continue    # probably all function words, not intended to be gappy
+                        if len(entry_words)==2 and ('the' in entry_words or 'a' in entry_words or 'an' in entry_words or 'of' in entry_words):
+                            continue    # probably not really gappy
+                        longestLen = max(len(w) for w in entry_words)
+                        ok = False
+                        for w in entry_words:
+                            if len(w)<longestLen: continue
+                            if any(t for it,t in enumerate(sent_words) if t==w and sent[it].pos not in {'DT','PDT','IN','MD','CC','PRP','PRP$','WDT','WRB','WP','WP$'}):
+                                ok = True
+                        if not ok:  # longest words are function words. probably should not be gappy
+                            continue
+                        
+                        # construct a regex of the entry words & the sentence to see if order is preserved
+                        entryR = ' ' + r' .* '.join(re.escape(w) for w in entry_words) + ' '
+                        if not re.search(entryR, ' '+' '.join(sent_words)+' ', re.U):
+                            continue    # ordering mismatch
+                        
+                        gappy.append(entry)
+    
+    return contig, gappy
 
 def hasFirstOrderFeatures():
     return _options['usePrevLabel']
@@ -316,7 +382,8 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
               {'J','N'},{'N','N'},{'D','N'},{'D','^'},{'N','^'},{'^','^'},
               {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]
 
-def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None):
+def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
+                         lexiconCandidatesThisSent=None):
     '''
     Extracts a map of feature names to values for a particular token in a sentence.
     These can be aggregated to get the feature vector or score for a whole sentence.
@@ -402,10 +469,35 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                         if k!=j and clusterj!='UNK': featureMap["cluster+cluster"+delta,'c'+clusterj[1:prefixlen],'c'+cluster[1:prefixlen]] = 1
             #if useClusterFeatures: featureMap["firstSense+prevCluster="+firstSense+"\t"+prevCluster] = 1
             featureMap["shape"+delta,sent[k].shape] = 1
+        
+        
+        sentpos = ''.join(coarsen(w.pos) for w in sent)
+        cposj = coarsen(sent[j].pos)
+        
+        if lexiconCandidatesThisSent is not None:
+            contig, gappy = lexiconCandidatesThisSent
+            nContig = 0
+            for c,entry in contig[j]:
+                #print(entry,file=sys.stderr)
+                # TODO: check for ordering match against the lexical entry ordering?
+                featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"]] = 1
+                # TODO: look at label?
+                nContig += 1
+            for n in range(1,nContig+1):
+                featureMap["contigMatches>=",str(n)] = 1
             
+            nGappy = 0
+            for entry in gappy:
+                #print('GAPPY',entry,file=sys.stderr)
+                # TODO: constrain number & placement of gaps to consider this a match?
+                if sent[j].token in entry["words"]:
+                    featureMap["gappyMatch",entry["datasource"]] = 1
+                    nGappy += 1
+            for n in range(1,nGappy+1):
+                featureMap["gappyMatches>=",str(n)] = 1
+        
+        
         if _options['usePOSNeighborFeatures']:    # new feature
-            sentpos = ''.join(coarsen(w.pos) for w in sent)
-            cposj = coarsen(sent[j].pos)
             for cpos in 'VN^ITPJRDM#&':
                 if {cpos,cposj} not in CPOS_PAIRS:
                     continue
