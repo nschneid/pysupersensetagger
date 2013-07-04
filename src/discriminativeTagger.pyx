@@ -440,13 +440,12 @@ class DiscriminativeTagger(object):
         so that the feature vector has the appropriate dimensions.
         '''
         labels = []
-        with codecs.open(labelFile, 'r', 'utf-8') as labelF:
-            for ln in labelF:
-                if ln[:-1]:
-                    l = ln[:-1]
-                    if legacy0 and l=='0':
-                        l = 'O'
-                    labels.append(l)
+        for ln in labelFile:
+            if ln[:-1]:
+                l = ln[:-1].decode('utf-8')
+                if legacy0 and l=='0':
+                    l = 'O'
+                labels.append(l)
         return labels
     
     @staticmethod
@@ -897,22 +896,27 @@ def main():
     
     def flag(name, description, ftype=str, **kwargs):
         opts.add_argument(('--' if len(name)>1 else '-')+name, type=ftype, help=description, **kwargs)
+    def inflag(name, description, ftype=argparse.FileType('r'), **kwargs):
+        flag(name, description, ftype=ftype, **kwargs)
+    def outflag(name, description, ftype=argparse.FileType('w'), **kwargs):
+        flag(name, description, ftype=ftype, **kwargs)
     def boolflag(name, description, default=False, **kwargs):
         opts.add_argument(('--' if len(name)>1 else '-')+name, action='store_false' if default else 'store_true', help=description, **kwargs)
     
-    flag("train", "Path to training data feature file")
+    flag("train", "Path to training data feature file") #inflag
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
     flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early", ftype=int, default=None)
-    flag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
+    inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
-    flag("labels", "List of possible labels, one label per line")
+    inflag("labels", "List of possible labels, one label per line")
     flag("save", "Save path for serialized model file (training only). Associated output files (with --debug) will add a suffix to this path.")
-    flag("load", "Path to serialized model file (decoding only)")
-    flag("properties", "Properties file with option defaults", default="tagger.properties")
+    flag("load", "Path to serialized model file (decoding only)")   #inflag
+    #inflag("properties", "Properties file with option defaults", default="tagger.properties")
     #boolflag("mira"),
     boolflag("weights", "Write feature weights to stdout after training")
     flag("test-predict", "Path to feature file on which to make predictions (following training, if applicable); predictions will be written to stdout. (Will be ignored if --test is supplied.)")
+    #inflag
     
     # formerly only allowed in properties file
     boolflag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", default=False)
@@ -934,6 +938,8 @@ def main():
     boolflag("clusters", "Word cluster features")
     flag("cluster-file", "Path to file with word clusters", default=supersenseFeatureExtractor._options['clusterFile'])
     boolflag("pos-neighbors", "POS neighbor features")
+    
+    inflag("lex", "Lexicons to load for lookup features", nargs='*')
     
     args = opts.parse_args()
     
