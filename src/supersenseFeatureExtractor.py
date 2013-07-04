@@ -176,11 +176,12 @@ def loadLexicons(lexfiles):
     for lexfile in lexfiles:
         for ln in lexfile:
             entry = json.loads(ln[:-1].decode('utf-8'))
-            if not any(w for w in entry["words"] if len(w)>2):
+            entry_words = entry["lemmas"] if entry.get("lemmas") else entry["words"]
+            if not any(w for w in entry_words if len(w)>2):
                 continue    # probably garbage entry
-            if entry["words"][-1]=='the':
+            if entry_words[-1]=='the':
                 continue    # probably garbage entry
-            key = sorted(entry["words"], key=lambda w: (len(w),w))[0]
+            key = sorted(entry_words, key=lambda w: (len(w),w))[0]
             lexicons[key].append(entry)
 
 def extractLexiconCandidates(sent, lowercase=True):
