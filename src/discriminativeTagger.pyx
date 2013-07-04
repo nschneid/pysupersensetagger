@@ -692,7 +692,7 @@ class DiscriminativeTagger(object):
         assert maxIters>0,maxIters
         assert earlyStopInterval is None or tuningData is not None
         print('training with the perceptron for up to',maxIters,'iterations', 
-              ('with early stopping by checking the tuning data every {} iterations'.format(earlyStopInterval) if earlyStopInterval is not None else ''),
+              ('with early stopping by checking the tuning data every {} iterations'.format(abs(earlyStopInterval)) if earlyStopInterval is not None else ''),
               file=sys.stderr)
         
         # create feature vocabulary for the training data
@@ -706,7 +706,7 @@ class DiscriminativeTagger(object):
             with open(savePrefix+'.features', 'w') as outF:
                 self.printFeatures(outF)
         
-        prevNCorrect = None
+        prevNCorrect = prevTotCost = None
         nTuning = None
         
         # training iterations: calls decode()
@@ -726,23 +726,33 @@ class DiscriminativeTagger(object):
                         self.printWeights(outF, weights)
                         
             
-            if earlyStopInterval is not None and i<maxIters-1 and (i+1)%earlyStopInterval==0:
+            if earlyStopInterval is not None and i<maxIters-1 and (i+1)%abs(earlyStopInterval)==0:
                 # decode on tuning data and decide whether to stop
                 next(self.decode(tuningData, maxTrainIters=0, averaging=averaging,
                       useBIO=useBIO, includeLossTerm=False, costAugVal=0.0))
-                nCorrect = nTuning = 0
+                totCost = nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
                     # TODO: evaluate cost rather than tag accuracy?
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
+                    totCost += sum(1+(costAugVal if tok.gold=='O' else 0) for tok in sent in tok.gold!=tok.prediction)
                     nTuning += len(sent)
-                if prevNCorrect is not None and nCorrect <= prevNCorrect:
-                    print('stopping early after iteration',i,
-                          '. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
-                                                                                              prevNCorrect,nTuning,prevNCorrect/nTuning),
-                          file=sys.stderr)
-                    self._weights = prevWeights # the last model that posted an improvement
-                    break
+                if prevNCorrect is not None:
+                    if earlyStopInterval>0 and nCorrect <= prevNCorrect: # use accuracy as criterion
+                        print('stopping early after iteration',i,
+                              '. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
+                                                                                                  prevNCorrect,nTuning,prevNCorrect/nTuning),
+                              file=sys.stderr)
+                        self._weights = prevWeights # the last model that posted an improvement
+                        break
+                    elif earlyStopInterval<0 and totCost >= prevTotCost:   # use cost as criterion
+                        print('stopping early after iteration',i,
+                              '. new tuning set avg cost {}/{}={:.2%}, previously {}/{}={:.2%}'.format(totCost,nTuning,totCost/nTuning,
+                                                                                                       prevTotCost,nTuning,prevTotCost/nTuning),
+                              file=sys.stderr)
+                        self._weights = prevWeights # the last model that posted an improvement
+                        break
                 prevNCorrect = nCorrect
+                prevTotCost = totCost
         
         # save model
         if savePrefix is not None:
@@ -906,7 +916,7 @@ def main():
     flag("train", "Path to training data feature file") #inflag
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
-    flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early", ftype=int, default=None)
+    flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early. If negative, cost rather than tagging accuracy is used as the stopping criterion.", ftype=int, default=None)
     inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
     inflag("labels", "List of possible labels, one label per line")
