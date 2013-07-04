@@ -31,7 +31,8 @@ def registerOpts(program_args):
     _options['useContextPOSFilter'] = program_args.cxt_pos_filter
     
     loadDefaults()
-    loadLexicons(program_args.lex)
+    if program_args.lex is not None:
+        loadLexicons(program_args.lex)
 
 clusterMap = None
 lexicons = defaultdict(list)
