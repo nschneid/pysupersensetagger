@@ -481,6 +481,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 #print(entry,file=sys.stderr)
                 # TODO: check for ordering match against the lexical entry ordering?
                 featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"]] = 1
+                if "count" in entry:
+                    featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],"count"] = entry["count"]
+                featureMap["contigMatch",entry["datasource"],"poses=",sentpos[c:c+len(entry["words"])],'@',str(j-c)] = 1
                 # TODO: look at label?
                 nContig += 1
             for n in range(1,nContig+1):
@@ -492,6 +495,10 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 # TODO: constrain number & placement of gaps to consider this a match?
                 if sent[j].token in entry["words"]:
                     featureMap["gappyMatch",entry["datasource"]] = 1
+                    if "count" in entry:
+                        featureMap["gappyMatch",entry["datasource"],"count"] = entry["count"]
+                    if "poses" in entry and entry["poses"]:
+                        featureMap["gappyMatch",entry["datasource"],"entryposes=",' '.join(entry["poses"]),"cpos=",cposj] = 1
                     nGappy += 1
             for n in range(1,nGappy+1):
                 featureMap["gappyMatches>=",str(n)] = 1
