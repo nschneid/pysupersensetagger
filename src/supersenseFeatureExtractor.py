@@ -183,7 +183,7 @@ def loadLexicons(lexfiles):
             key = sorted(entry["words"], key=lambda w: (len(w),w))[0]
             lexicons[key].append(entry)
 
-def extractLexiconCandidates(sent, lowercase=True, stem=False):
+def extractLexiconCandidates(sent, lowercase=True):
     sent_cands = []
     contig = defaultdict(list)
     gappy = []
@@ -191,12 +191,20 @@ def extractLexiconCandidates(sent, lowercase=True, stem=False):
     for j,t in enumerate(sent):
         tokmap[t.token].add(j)
     toks = set(tokmap.keys())
-    sent_words = [t.token.lower() if lowercase else t.token for t in sent]
+    sent_tokens = [t.token.lower() if lowercase else t.token for t in sent]
+    sent_stems = [t.stem.lower() if lowercase else t.stem for t in sent]
     for tok in toks:
         if tok in lexicons:
             for entry in lexicons[tok]:
-                entry_words = [w.lower() if lowercase else w for w in entry["words"]]
-                entry["words"] = entry_words
+                if "lemmas" in entry:
+                    entry_words = [w.lower() if lowercase else w for w in entry["lemmas"]]
+                    entry["lemmas"] = entry_words
+                    sent_words = sent_stems
+                else:
+                    entry_words = [w.lower() if lowercase else w for w in entry["words"]]
+                    entry["words"] = entry_words
+                    sent_words = sent_tokens
+                
                 if set(entry_words)<=toks:  # all entry words are in the sentence
                     if entry not in sent_cands:
                         sent_cands.append(entry)
@@ -483,7 +491,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"]] = 1
                 if "count" in entry:
                     featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],"count"] = entry["count"]
-                featureMap["contigMatch",entry["datasource"],"poses=",sentpos[c:c+len(entry["words"])],'@',str(j-c)] = 1
+                if "pmi" in entry:
+                    featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],"pmi"] = entry["pmi"]
+                featureMap["contigMatch",entry["datasource"],"poses=",sentpos[c:c+len(entry["lemmas"] if entry.get("lemmas") else entry["words"])],'@',str(j-c)] = 1
                 # TODO: look at label?
                 nContig += 1
             for n in range(1,nContig+1):
@@ -493,10 +503,12 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             for entry in gappy:
                 #print('GAPPY',entry,file=sys.stderr)
                 # TODO: constrain number & placement of gaps to consider this a match?
-                if sent[j].token in entry["words"]:
+                if (entry.get("lemmas") and sent[j].stem in entry["lemmas"]) or (entry.get("words") and sent[j].token in entry["words"]):
                     featureMap["gappyMatch",entry["datasource"]] = 1
                     if "count" in entry:
                         featureMap["gappyMatch",entry["datasource"],"count"] = entry["count"]
+                    if "pmi" in entry:
+                        featureMap["gappyMatch",entry["datasource"],"pmi"] = entry["pmi"]
                     if "poses" in entry and entry["poses"]:
                         featureMap["gappyMatch",entry["datasource"],"entryposes=",' '.join(entry["poses"]),"cpos=",cposj] = 1
                     nGappy += 1
