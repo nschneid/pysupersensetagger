@@ -472,7 +472,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             if useClusterFeatures:
                 cluster = wordClusterID(sent[k].token)
                 featureMap["cluster"+delta,cluster] = 1
-                if k!=j: featureMap["cluster+cluster"+delta,clusterj,cluster] = 1
+                if k!=j: featureMap["cluster6+cluster6"+delta,clusterj[:6],cluster[:6]] = 1
                 if _options['useClusterPrefixFeatures'] and cluster!='UNK':
                     for prefixlen in range(3,max(len(cluster),len(clusterj)),2): # even-length prefixes of the bitstring (cluster ID stats with "C")
                         featureMap["cluster"+delta,'c'+cluster[1:prefixlen]] = 1
