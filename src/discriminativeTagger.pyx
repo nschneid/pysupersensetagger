@@ -734,7 +734,7 @@ class DiscriminativeTagger(object):
                 for sent,o0Feats in tuningData:
                     # TODO: evaluate cost rather than tag accuracy?
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
-                    totCost += sum(1+(costAugVal if tok.gold=='O' else 0) for tok in sent in tok.gold!=tok.prediction)
+                    totCost += sum(1+(costAugVal if tok.gold=='O' else 0) for tok in sent if tok.gold!=tok.prediction)
                     nTuning += len(sent)
                 if prevNCorrect is not None:
                     if earlyStopInterval>0 and nCorrect <= prevNCorrect: # use accuracy as criterion
