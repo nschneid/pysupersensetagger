@@ -392,6 +392,8 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
               {'J','N'},{'N','N'},{'D','N'},{'D','^'},{'N','^'},{'^','^'},
               {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]
 
+DIGIT_RE = re.compile(r'\d')
+
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
                          lexiconCandidatesThisSent=None):
     '''
@@ -490,13 +492,14 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             contig, gappy = lexiconCandidatesThisSent
             nContig = 0
             for c,entry in contig[j]:
+                lbl = entry["label"] if not DIGIT_RE.search(entry["label"]) else ''
                 #print(entry,file=sys.stderr)
                 # TODO: check for ordering match against the lexical entry ordering?
-                featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"]] = 1
+                featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],lbl] = 1
                 for z in ("count","pmi","t","mle","dice"):
                     if z in entry:
-                        featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],z] = entry[z]
-                featureMap["contigMatch",entry["datasource"],"poses=",sentpos[c:c+len(entry["lemmas"] if entry.get("lemmas") else entry["words"])],'@',str(j-c)] = 1
+                        featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],lbl,z] = entry[z]
+                featureMap["contigMatch",entry["datasource"],lbl,"poses=",sentpos[c:c+len(entry["lemmas"] if entry.get("lemmas") else entry["words"])],'@',str(j-c)] = 1
                 # TODO: look at label?
                 nContig += 1
             for n in range(1,nContig+1):
@@ -504,15 +507,16 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             
             nGappy = 0
             for entry in gappy:
+                lbl = entry["label"] if not DIGIT_RE.search(entry["label"]) else ''
                 #print('GAPPY',entry,file=sys.stderr)
                 # TODO: constrain number & placement of gaps to consider this a match?
                 if (entry.get("lemmas") and sent[j].stem in entry["lemmas"]) or (entry.get("words") and sent[j].token in entry["words"]):
-                    featureMap["gappyMatch",entry["datasource"]] = 1
+                    featureMap["gappyMatch",entry["datasource"],lbl] = 1
                     for z in ("count","pmi","t","mle","dice"):
                         if z in entry:
-                            featureMap["gappyMatch",entry["datasource"],z] = entry[z]
+                            featureMap["gappyMatch",entry["datasource"],lbl,z] = entry[z]
                     if "poses" in entry and entry["poses"]:
-                        featureMap["gappyMatch",entry["datasource"],"entryposes=",' '.join(entry["poses"]),"cpos=",cposj] = 1
+                        featureMap["gappyMatch",entry["datasource"],lbl,"entryposes=",' '.join(entry["poses"]),"cpos=",cposj] = 1
                     nGappy += 1
             for n in range(1,nGappy+1):
                 featureMap["gappyMatches>=",str(n)] = 1
