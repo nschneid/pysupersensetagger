@@ -494,7 +494,8 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 # TODO: check for ordering match against the lexical entry ordering?
                 featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"]] = 1
                 for z in ("count","pmi","t","mle","dice"):
-                    featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],z] = entry[z]
+                    if z in entry:
+                        featureMap["contigMatch,first="+('1' if c==j else '0'),entry["datasource"],z] = entry[z]
                 featureMap["contigMatch",entry["datasource"],"poses=",sentpos[c:c+len(entry["lemmas"] if entry.get("lemmas") else entry["words"])],'@',str(j-c)] = 1
                 # TODO: look at label?
                 nContig += 1
@@ -508,7 +509,8 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 if (entry.get("lemmas") and sent[j].stem in entry["lemmas"]) or (entry.get("words") and sent[j].token in entry["words"]):
                     featureMap["gappyMatch",entry["datasource"]] = 1
                     for z in ("count","pmi","t","mle","dice"):
-                        featureMap["gappyMatch",entry["datasource"],z] = entry[z]
+                        if z in entry:
+                            featureMap["gappyMatch",entry["datasource"],z] = entry[z]
                     if "poses" in entry and entry["poses"]:
                         featureMap["gappyMatch",entry["datasource"],"entryposes=",' '.join(entry["poses"]),"cpos=",cposj] = 1
                     nGappy += 1
