@@ -514,7 +514,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights):
+    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights, learningRate=1.0):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -545,7 +545,7 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, gold, self._featureIndexes)
-                currentWeights[featIndex] += v
+                currentWeights[featIndex] += learningRate * v
                 updates.add(featIndex)
                 
             # first-order features
@@ -553,7 +553,7 @@ class DiscriminativeTagger(object):
                 o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, gold, self._featureIndexes)
-                    currentWeights[featIndex] += v
+                    currentWeights[featIndex] += learningRate * v
                     updates.add(featIndex)
             
             if not o0FeatureMap and not o1FeatureMap:
@@ -566,7 +566,7 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, pred, self._featureIndexes)
-                currentWeights[featIndex] -= v
+                currentWeights[featIndex] -= learningRate * v
                 updates.add(featIndex)
                 
             # first-order features
@@ -574,7 +574,7 @@ class DiscriminativeTagger(object):
                 o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, pred, self._featureIndexes)
-                    currentWeights[featIndex] -= v
+                    currentWeights[featIndex] -= learningRate * v
                     updates.add(featIndex)
             
             if not o0FeatureMap and not o1FeatureMap:
@@ -686,7 +686,7 @@ class DiscriminativeTagger(object):
             print('---')
             assert c_score==i_score,(c_score,i_score)
 
-    def train(self, trainingData, savePrefix, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
+    def train(self, trainingData, savePrefix, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
         assert maxIters>0,maxIters
@@ -759,7 +759,7 @@ class DiscriminativeTagger(object):
             self.saveModel(savePrefix)
         
     
-    def decode(self, data, maxTrainIters=0, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0):
+    def decode(self, data, maxTrainIters=0, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
         '''Decode a dataset under a model. Predictions are stored in the sentence within the call to _viterbi(). 
         If maxTrainIters is positive, update the weights. 
         After each iteration, the weights are yielded.'''
@@ -810,7 +810,7 @@ class DiscriminativeTagger(object):
         totalWordsIncorrect = 0
         totalInstancesProcessed = 0
         
-        
+        gamma_current = 1.0   # current learning rate
         
         for numIters in range(max(1,maxTrainIters)):
             if update:
@@ -827,7 +827,8 @@ class DiscriminativeTagger(object):
                               useBIO=useBIO)
         
                 if update:
-                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights)
+                    gamma_current *= gamma
+                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights, learningRate=gamma_current)
                     # will update currentWeights as well as running average in finalWeights
                     o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
@@ -938,7 +939,7 @@ def main():
     # formerly: "useFeatureNumber"
     flag("excludeFeatures","Comma-separated list of (0-based) column numbers to ignore when reading feature files. (Do not specify column 0; use --no-lex instead.)", default='')
     flag("cutoff", "Threshold (minimum number of occurrences) of a feature for it to be included in the model", ftype=int, default=None)
-    
+    flag("gamma","Base of learning rate (exponent is number of instances seen so far)", ftype=float, default=1.0)
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
@@ -987,7 +988,7 @@ def main():
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
                     tuningData=testData,
                     developmentMode=args.debug, 
-                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug)
+                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma)
             
             del trainingData
         else:
