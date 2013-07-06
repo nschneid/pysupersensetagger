@@ -68,20 +68,25 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
         if lbl2 is None:
             assert lbl1 is not None
             if lbl1[0] not in {'O', 'I', I_BAR, I_TILDE}:
-                return False
+                if lbl1[0]!='B' or useBIO=='NO_SINGLETON_B':
+                    return False
         elif lbl2[0] in {'o', 'b', 'I', I_BAR, I_TILDE}:
-            if lbl1 is None or lbl1[0] in {'O', 'b'}:
-                return False    # disallow O followed by an I tag
-            if lbl2 not in {'o', 'b'} and (len(lbl1)>1)!=(len(lbl2)>1):
+            if lbl1 is None or lbl1[0]=='O':
+                return False
+            elif lbl1[0]=='b' and useBIO=='NO_SINGLETON_B':
+                return False
+            
+            if lbl2[0] not in {'o', 'b'} and (len(lbl1)>1)!=(len(lbl2)>1):
                 return False    # only allow I without class if previous tag has no class
             if len(lbl2)>1 and lbl1[2:]!=lbl2[2:]:
                 return False    # disallow an I tag following a tag with a different class
         elif lbl2[0] in {'i', i_BAR, i_TILDE}:
-            if lbl1 is None or lbl1[0] not in {'b', 'i'}:
+            if lbl1 is None or lbl1[0] not in {'b', 'i', i_BAR, i_TILDE}:
                 return False
         elif lbl2[0] in {'O', 'B'}:
             if lbl1 is not None and lbl1[0] not in {'O', 'I', I_BAR, I_TILDE}:
-                return False
+                if lbl1[0]!='B' or useBIO=='NO_SINGLETON_B':
+                    return False
         return True
 
 cdef c_viterbi(sent, o0Feats, float[:] weights, 
@@ -686,7 +691,7 @@ class DiscriminativeTagger(object):
             print('---')
             assert c_score==i_score,(c_score,i_score)
 
-    def train(self, trainingData, savePrefix, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
+    def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         
         assert maxIters>0,maxIters
@@ -697,7 +702,7 @@ class DiscriminativeTagger(object):
         
         # create feature vocabulary for the training data
         assert trainingData
-        self._createFeatures(trainingData)
+        self._createFeatures(trainingData, sentIndices=instanceIndices)
         trainingData.enable_caching()   # don't cache before the featureset is finalized!
         
         # save features
@@ -915,10 +920,12 @@ def main():
         opts.add_argument(('--' if len(name)>1 else '-')+name, action='store_false' if default else 'store_true', help=description, **kwargs)
     
     flag("train", "Path to training data feature file") #inflag
+    flag("max-train-instances", "During training, truncate the data to the specified number of instances", ftype=int)
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
     flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early. If negative, cost rather than tagging accuracy is used as the stopping criterion.", ftype=int, default=None)
     inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
+    #flag("max-test-instances", "During testing, truncate the data to the specified number of instances", ftype=int)
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
     inflag("labels", "List of possible labels, one label per line")
     flag("save", "Save path for serialized model file (training only). Associated output files (with --debug) will add a suffix to this path.")
@@ -930,7 +937,7 @@ def main():
     #inflag
     
     # formerly only allowed in properties file
-    boolflag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", default=False)
+    flag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", nargs='?', const=True, default=False, choices={'NO_SINGLETON_B'})
     boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
     boolflag("includeLossTerm", "Incur a cost of (at least) 1 whenever making a tagging error during training.")
     flag("costAug", "Value of cost penalty for errors against recall (for recall-oriented learning)", ftype=float, default=0.0)
@@ -959,6 +966,7 @@ def main():
     if args.labels is None and args.load is None:
         raise Exception('Missing argument: --labels')
     
+    
     supersenseFeatureExtractor.registerOpts(args)
     
     testData = None
@@ -984,7 +992,7 @@ def main():
             if args.test is not None or args.test_predict is not None:
                 testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
                 
-            t.train(trainingData, args.save, maxIters=args.iters, averaging=(not args.no_averaging), 
+            t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
                     tuningData=testData,
                     developmentMode=args.debug, 
