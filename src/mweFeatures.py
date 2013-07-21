@@ -199,6 +199,7 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
               {'R','J'},{'N','&'},{'^','&'},{'V','I'},{'I','N'}]
 
 DIGIT_RE = re.compile(r'\d')
+SENSENUM = re.compile(r'\.(\d\d|XX)')
 
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
                          lexiconCandidatesThisSent=None):
@@ -330,7 +331,10 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                     ff['wn',wn_pos_setS,tag] = 1
             
             if tag.upper()!='O':
-                ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),entry["label"]] = 1
+                lbl = entry["label"]
+                if not lbl.startswith('NE:') and SENSENUM.search(lbl):
+                    lbl = '<sense-tagged>'
+                ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl] = 1
                 nMatches += 1
             else:
                 ff['lex',lexiconname,tag.upper()] = 1
