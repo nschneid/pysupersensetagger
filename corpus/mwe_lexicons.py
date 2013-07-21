@@ -30,7 +30,7 @@ def gappy_match(needle, haystack, start=0):
     example result: [[2, 4, ['give', 'up']], [6, 7, ['on']]]
     '''
     h = ' '.join(haystack)
-    pattern = r'\b(' + r')(?:\s\S+)*?\s('.join(re.escape(w) for w in needle) + ')$'
+    pattern = r'(^|\S)(' + r')(?:\s\S+)*?\s('.join(re.escape(w) for w in needle) + ')$'
     m = re.search(pattern, h)
     if not m:
         return None
