@@ -46,7 +46,6 @@ def gappy_match(needle, haystack, start=0):
         else:
             result.append([itok, itok+1, [w]])
         e = itok + 1
-    assert len(result)>1,(result,needle,haystack,start,pattern) # TODO: temporary
     return result
 
 class MultiwordLexicon(object):
