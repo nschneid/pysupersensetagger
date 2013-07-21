@@ -136,7 +136,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                 if label!=sent[i].gold:
                     if includeLossTerm:
                         score0 += 1.0   # base cost of any error
-                    if label=='O':
+                    if label=='O' and sent[i].gold=='B':
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
                 if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
@@ -281,7 +281,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                                 if label!=sent[i].gold:
                                     if includeLossTerm:
                                         score0 += 1.0   # base cost of any error
-                                    if label=='O':
+                                    if label=='O' and sent[i].gold=='B':
                                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                                 
                             o0Scores[i,l2] = score0
