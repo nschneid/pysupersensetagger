@@ -324,7 +324,11 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             assert toffset==j
             if lexiconname=='wordnet_mwes':
                 if entry:
-                    mw_pos_set = frozenset(wn.lemma(wnlemma).synset.pos.replace('s','a') for wnlemma in entry["wnlemmas"])
+                    try:
+                        mw_pos_set = frozenset(wn.lemma(wnlemma).synset.pos.replace('s','a') for wnlemma in entry["wnlemmas"])
+                    except:
+                        print(entry, file=sys.stderr)
+                        raise
                     mw_pos_setS = '{'+repr(tuple(mw_pos_set))[1:-1]+'}'
                     ff['wn',wn_pos_setS,tag,mw_pos_setS] = 1
                 else:
