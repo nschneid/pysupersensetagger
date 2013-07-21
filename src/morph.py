@@ -6,6 +6,9 @@ Created on Jul 24, 2012
 from __future__ import print_function
 import sys, os, gzip
 
+from nltk.corpus import wordnet as wn
+from nltk.tokenize import word_tokenize
+
 morphMap = {} # pos -> {word -> stem}
 
 _options = {'useOldDataFormat': False,
@@ -15,12 +18,39 @@ def loadDefaults():
     # TODO: properties allowing for override of _options defaults
     pass
 
+def stem(w, p):
+    '''
+    Given a word and PTB part-of-speech tag, returns the lowercased 
+    lemma using WordNet. If not found in WordNet, returns the lowercased 
+    word.
+    '''
+    w = w.lower()
+    if p is not None and p.startswith('NNP'): return w
+    
+    # irregular past tense verbs disambiguated by the fine-grained POS
+    if w=='fell' and p=='VBD': return 'fall'
+    elif w=='found' and p in {'VBD','VBN'}: return 'find'
+    elif w=='lay' and p=='VBD': return 'lie'
+    elif w=='saw' and p=='VBD': return 'see'
+    elif w=='people' and p=='NNS': return 'person'
+    
+    if w=='cannot' or "'" in w:
+        tt = word_tokenize(w+' .')[:-1] # period ensures no part of the word is interpreted as sentence-final punctuation
+    else:
+        tt = [w]
+    lem = wn.morphy(tt[0], p and {'N': wn.NOUN, 'V': wn.VERB, 'J': wn.ADJ, 'R': wn.ADV}.get(p[0]))
+    if lem:
+        tt[0] = lem
+    return tt[0]
+
+"""
 def stem(word, pos):
     if _options['useMorphCache']:
         return getStemCache(word, pos)
     else:
         return getStemWN(word, pos)
-    
+"""
+ 
 def getStemCache(word, pos):
     if not morphMap:
         if _options['useOldDataFormat']:

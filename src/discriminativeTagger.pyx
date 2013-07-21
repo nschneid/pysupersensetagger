@@ -13,8 +13,13 @@ cimport cython
 from cython.view cimport array as cvarray
 
 from labeledSentence import LabeledSentence
-import supersenseFeatureExtractor, morph
-from supersenseFeatureExtractor import memoize
+import morph
+from pyutil.memoize import memoize
+from pyutil.ds import features 
+
+import supersenseFeatureExtractor
+featureExtractor = None
+
 
 from dataFeaturizer import SupersenseDataSet, SupersenseFeaturizer
 
@@ -98,7 +103,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
         
         indexerSize = len(featureIndexes)
         
-        hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
+        hasFOF = featureExtractor.hasFirstOrderFeatures()
         
         cdef int nTokens, i, k, l, maxIndex
         cdef float score, score0, maxScore, NEGINF
@@ -115,7 +120,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
             sent[i] = tok._replace(prediction=None)
         
         for i in range(nTokens):
-            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
+            #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             o0FeatureMap = o0Feats[i]
             
             for l,label in enumerate(labels):
@@ -161,7 +166,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                         score += score0
                         if hasFOF:
                             '''
-                            o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
+                            o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                             for h,v in o1FeatureMap.items():
                                 score += weights[self.getGroundedFeatureIndex(h, l)]*v
                             '''
@@ -205,7 +210,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                 
         indexerSize = len(featureIndexes)
         
-        hasFOF = supersenseFeatureExtractor.hasFirstOrderFeatures()
+        hasFOF = featureExtractor.hasFirstOrderFeatures()
         
         cdef int nTokens, nLabels, i, k, k2, kq, l, l2, lq, maxIndex, q, direc, last, backpointer
         cdef float score, score0, maxScore, INF, NEGINF, lower_bound
@@ -432,7 +437,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
 
 class DiscriminativeTagger(object):
     def __init__(self, cutoff=None):
-        self._featureIndexes = supersenseFeatureExtractor.SequentialStringIndexer(cutoff=cutoff)
+        self._featureIndexes = features.SequentialStringIndexer(cutoff=cutoff)
         self._weights = None
         self._labels = []
         self._labelC = Counter()
@@ -547,15 +552,15 @@ class DiscriminativeTagger(object):
             # update gold label feature weights
             
             # zero-order features
-            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
+            #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, gold, self._featureIndexes)
                 currentWeights[featIndex] += learningRate * v
                 updates.add(featIndex)
                 
             # first-order features
-            if supersenseFeatureExtractor.hasFirstOrderFeatures() and i>0:
-                o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
+            if featureExtractor.hasFirstOrderFeatures() and i>0:
+                o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, gold, self._featureIndexes)
                     currentWeights[featIndex] += learningRate * v
@@ -568,15 +573,15 @@ class DiscriminativeTagger(object):
             # update predicted label feature weights
             
             # zero-order features
-            #o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
+            #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, pred, self._featureIndexes)
                 currentWeights[featIndex] -= learningRate * v
                 updates.add(featIndex)
                 
             # first-order features
-            if supersenseFeatureExtractor.hasFirstOrderFeatures() and i>0:
-                o1FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
+            if featureExtractor.hasFirstOrderFeatures() and i>0:
+                o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, pred, self._featureIndexes)
                     currentWeights[featIndex] -= learningRate * v
@@ -598,11 +603,11 @@ class DiscriminativeTagger(object):
         print('instantiating features', file=sys.stderr)
         
         # instantiate first-order features for all possible previous labels
-        o1Feats = set() if supersenseFeatureExtractor.hasFirstOrderFeatures() else None
+        o1Feats = set() if featureExtractor.hasFirstOrderFeatures() else None
         
         # create a feature for each label as the previous label
         # TODO: if using a caching format, consider doing this even if not using first-order features
-        if supersenseFeatureExtractor.hasFirstOrderFeatures():
+        if featureExtractor.hasFirstOrderFeatures():
             _o1Feats = [0]*len(self._labels)
             for l,lbl in enumerate(self._labels):
                 key = ('prevLabel=',lbl)  # TODO: assumes this is the only first-order feature
@@ -618,9 +623,9 @@ class DiscriminativeTagger(object):
             """
             for i in range(len(sent)):
                 # will index new features as they are encountered
-                supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders=ORDERS0, indexer=self._featureIndexes)
+                featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders=ORDERS0, indexer=self._featureIndexes)
                 '''
-                for h,v in supersenseFeatureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders=ORDERS0, indexer=self._featureIndexes).items():
+                for h,v in featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders=ORDERS0, indexer=self._featureIndexes).items():
                     # TODO: first-order features handled above, so zero-order only here
                     self._featureIndexes.add(h)
                 '''
@@ -951,6 +956,7 @@ def main():
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
     # features
+    boolflag("mwe", "Multiword expressions featureset")
     boolflag("bigrams", "Token bigram features")
     boolflag("cxt-pos-filter", "Filter bigram features based on the POS pairs")
     boolflag("clusters", "Word cluster features")
@@ -966,8 +972,13 @@ def main():
     if args.labels is None and args.load is None:
         raise Exception('Missing argument: --labels')
     
+    global featureExtractor
+    if args.mwe:
+        import mweFeatures as featureExtractor
+    else:
+        import supersenseFeatureExtractor as featureExtractor
     
-    supersenseFeatureExtractor.registerOpts(args)
+    featureExtractor.registerOpts(args)
     
     testData = None
     
@@ -988,9 +999,9 @@ def main():
         
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
-            trainingData = SupersenseFeaturizer(SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
             if args.test is not None or args.test_predict is not None:
-                testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+                testData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
                 
             t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
@@ -1005,7 +1016,7 @@ def main():
     
     if args.test is not None or args.test_predict is not None:
         if testData is None:
-            testData = SupersenseFeaturizer(SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            testData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
         
         next(t.decode(testData, maxTrainIters=0, averaging=(not args.no_averaging),
                       useBIO=args.bio, includeLossTerm=False, costAugVal=0.0))

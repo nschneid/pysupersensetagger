@@ -8,7 +8,7 @@ from __future__ import print_function, division
 import os, sys, codecs
 
 from labeledSentence import LabeledSentence
-import supersenseFeatureExtractor, morph
+import morph
 
 USTRINGS = {}
 def uintern(unicode_string):
@@ -98,7 +98,8 @@ class SupersenseDataSet(DataSet):
 
 class SupersenseFeaturizer(object):
     
-    def __init__(self, dataset, indexes, cache_features=True):
+    def __init__(self, extractor, dataset, indexes, cache_features=True):
+        self._extractor = extractor
         self._data = dataset
         self._featureIndexes = indexes
         self._features = [] if cache_features else None
@@ -107,13 +108,13 @@ class SupersenseFeaturizer(object):
     def __iter__(self):
         for j,sent in enumerate(self._data):
             if self._features is None or j>=len(self._features):  # not yet in cache
-                lexiconCandidatesThisSent = supersenseFeatureExtractor.extractLexiconCandidates(sent)
+                lexiconCandidatesThisSent = self._extractor.extractLexiconCandidates(sent)
                 
                 o0FeatsEachToken = []
                 
                 for i in range(len(sent)):
                     # zero-order features (lifted)
-                    o0FeatureMap = supersenseFeatureExtractor.extractFeatureValues(sent, i, 
+                    o0FeatureMap = self._extractor.extractFeatureValues(sent, i, 
                                                                                    usePredictedLabels=False, 
                                                                                    orders={0}, 
                                                                                    indexer=self._featureIndexes, 
