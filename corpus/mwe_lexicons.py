@@ -138,6 +138,7 @@ class MultiwordLexicon(object):
                 elif not in_gap:
                     subspans = gappy_match(cand, sentence_lemmas[:e], start=start)
                     if subspans:
+                        assert len(subspans)>1,subspans
                         subspans = subspans[::-1]
                         newtags = ''
                         newpath = []
