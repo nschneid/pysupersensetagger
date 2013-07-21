@@ -147,7 +147,7 @@ class MultiwordLexicon(object):
                         for before_gap,after_gap in zip(subspans[1:],subspans[:-1]):
                             gb = before_gap[1]
                             ge = after_gap[0]
-                            assert ge>0
+                            assert ge>0, (cand, sentence_lemmas[:e], start, subspans)
                             gpath, gtags, gtokinfo = self.shortest_path_decoding(sentence_lemmas[:ge], start=gb, in_gap=True)
                             newpath = gpath + newpath
                             newtags = gtags + 'I'*(after_gap[1]-after_gap[0]) + newtags
