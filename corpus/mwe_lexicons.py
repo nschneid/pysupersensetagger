@@ -116,14 +116,14 @@ class MultiwordLexicon(object):
             entry["lemmas"] = [morph.stem(w,p) for w,p in zip(words,poses)]
         try:
             sig = tuple(l.lower() for l in entry["lemmas"] if not l[0]==l[-1]=='_')
+            if sig[-1]=='the' or not any(l for l in sig if len(l)>2):
+                return    # probably garbage entry
+            if len(sig)>1:
+                self._entries[sig] = entry
+                self._bylast[sig[-1]].add(sig)
         except:
             print(entry)
             raise
-        if sig[-1]=='the' or not any(l for l in sig if len(l)>2):
-            return    # probably garbage entry
-        if len(sig)>1:
-            self._entries[sig] = entry
-            self._bylast[sig[-1]].add(sig)
     
     def load(self, entries):
         for entry in entries:
