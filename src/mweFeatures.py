@@ -248,7 +248,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         # - prefix (up to 4)
         # - suffix (up to 4)
         for k in range(4):
-            ff['w[:{}]'.format(k), w[:k]] = 1
+            ff['w[:{}]'.format(k+1), w[:k+1]] = 1
             ff['w[{}:]'.format(-k-1), w[-k-1:]] = 1
         
         # - special characters
