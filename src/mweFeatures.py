@@ -318,9 +318,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                     ff['compound_right'] = 1
         
         
-        nMatches = 0
+        nMatches = Counter()
         for lexiconname,segmentation in lexiconCandidatesThisSent.items():
-            toffset,tag,is_gappy_expr,entry = segmentation[j]
+            toffset,tag,expr_tokens,is_gappy_expr,entry = segmentation[j]
             assert toffset==j
             if lexiconname=='wordnet_mwes':
                 if entry:
@@ -339,15 +339,22 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 if not lbl.startswith('NE:') and SENSENUM.search(lbl):
                     lbl = '<sense-tagged>'
                 ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl] = 1
-                nMatches += 1
+                p1 = sent[expr_tokens[0]].pos
+                p2 = sent[expr_tokens[-1]].pos
+                ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
+                nMatches[None,None] += 1
             else:
                 ff['lex',lexiconname,tag.upper()] = 1
             
-        if nMatches==0:
-            ff['#lex-matches=',str(nMatches)] = 1
+        if nMatches[None,None]==0:
+            ff['#lex-matches=','0'] = 1
         else:
-            for n in range(1,nMatches+1):
+            for n in range(1,nMatches[None,None]+1):
                 ff['#lex-matches>=',str(n)] = 1
+            for (p1,p2),N in nMatches.items():
+                if (p1,p2)!=(None,None):
+                    for n in range(1,N+1):
+                        ff['#lex-matches',p1,'...',p2,'>=',str(n)] = 1
                 
         # TODO: collocation
         
