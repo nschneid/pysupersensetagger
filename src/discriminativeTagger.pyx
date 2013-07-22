@@ -147,6 +147,8 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                         score = NEGINF
                     maxScore = score
                     maxIndex = 0    # doesn't matter--start of sequence
+                    # not scoring a start-of-sequence bigram (or end-of-sequence, for that matter).
+                    # the beginning/end of the sentence is easily captured with zero-order features.
                 else:
                     # consider each possible previous label
                     for k,prevLabel in enumerate(labels):
