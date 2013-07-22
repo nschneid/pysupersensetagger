@@ -122,7 +122,7 @@ class MultiwordLexicon(object):
                 self._entries[sig] = entry
                 self._bylast[sig[-1]].add(sig)
         except:
-            print(entry)
+            print(entry, file=sys.stderr)
             raise
     
     def load(self, entries):
