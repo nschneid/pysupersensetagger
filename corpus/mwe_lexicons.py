@@ -55,7 +55,7 @@ class MultiwordLexicon(object):
     lexicalized parts of the expression, in order.
     '''
 
-    SAID_POS_2_PENN = {',': ',', 
+    POS_2_PENN = {'said': {',': ',', 
                        'A': 'JJ',    # not a perfect mapping due to VBD/VBG participles :P
                        'AP': 'JJ',
                        'AUX': 'VB',
@@ -89,7 +89,10 @@ class MultiwordLexicon(object):
                        'TO': 'TO',
                        'V': 'VB',
                        'VP': 'VB'
-                       }
+                       },
+                'baldwin vpc': {'V': 'VB',
+                                'P': {'to': 'TO',
+                                      None: 'IN'}}}
     
     def __init__(self, name, jsonPath=None):
         self._name = name
@@ -100,21 +103,28 @@ class MultiwordLexicon(object):
     
     def _read_entry(self, entry):
         if "lemmas" not in entry:
-            assert "words" in entry,entry
-            words = entry["words"]
-            poses = [None]*len(words)
-            if "poses" in entry and entry["poses"]:
-                if entry["datasource"].lower()=='said':
-                    for i,p in enumerate(entry["poses"]):
-                        info = self.SAID_POS_2_PENN.get(p)
-                        assert info,p
-                        poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
-                else:
-                    assert entry["datasource"].lower()=='semcor',entry
-                    poses = entry["poses"]
-            elif entry["label"].startswith('NNP') or entry["label"].startswith('NE:'):
-                poses = ['NNP']*len(words)
-            entry["lemmas"] = [morph.stem(w,p) for w,p in zip(words,poses)]
+            ds = entry["datasource"].lower()
+            if 'lvc' in ds:
+                entry["lemmas"] = [entry["verblemma"], morph.stem(entry["noun"],'NN')]
+            else:
+                assert "words" in entry,entry
+                words = entry["words"]
+                poses = [None]*len(words)
+                if "poses" in entry and entry["poses"]:
+                    
+                    if ds=='said':
+                        for i,p in enumerate(entry["poses"]):
+                            info = self.POS_2_PENN[ds].get(p)
+                            assert info,p
+                            poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
+                    else:
+                        assert ds=='semcor',entry
+                        poses = entry["poses"]
+                elif ds in {'phrases.net', "oyz's idioms"}:
+                    pass
+                elif entry["label"].startswith('NNP') or entry["label"].startswith('NE:'):
+                    poses = ['NNP']*len(words)
+                entry["lemmas"] = [morph.stem(w,p) for w,p in zip(words,poses)]
         try:
             sig = tuple(l.lower() for l in entry["lemmas"] if not l[0]==l[-1]=='_')
             if not sig or sig[-1]=='the' or not any(l for l in sig if len(l)>2):
@@ -179,7 +189,7 @@ class MultiwordLexicon(object):
                         newtags = newtags.lower()
                     newtokinfo = [(b,('b' if in_gap else 'B'),False,candinfo)]+[(i,('i' if in_gap else 'I'),False,candinfo) for i in range(b+1,e)]
                     heappush(queue, (len(path)+b+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
-                elif not in_gap:
+                elif not in_gap and set(sentence_lemmas[start:e])>=set(cand):
                     subspans = gappy_match(cand, sentence_lemmas[:e], start=start)
                     if subspans:
                         assert len(subspans)>1,subspans
