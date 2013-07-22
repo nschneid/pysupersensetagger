@@ -436,10 +436,11 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
         return upper_bound
 
 class DiscriminativeTagger(object):
-    def __init__(self, cutoff=None):
+    def __init__(self, cutoff=None, defaultY=None):
         self._featureIndexes = features.SequentialStringIndexer(cutoff=cutoff)
         self._weights = None
         self._labels = []
+        self._defaultY = defaultY
         self._labelC = Counter()
         #self._rgen = random.Random(1234567)
         
@@ -508,11 +509,17 @@ class DiscriminativeTagger(object):
     def printWeights(self, out, weights=None):
         if weights is None:
             weights = self._weights
-        cdef int indexerSize, index, i
+        cdef int indexerSize, index, i, d
+        cdef float baseline
         indexerSize = len(self._featureIndexes)
+        if self._defaultY is not None:
+            d = self._labels.index(self._defaultY)
         for index,fname in sorted(self._featureIndexes.items(), key=lambda x: x[1]):
+            baseline = 0.0
+            if self._defaultY is not None:
+                baseline = weights[_ground0(index,d,indexerSize)]
             for i,label in enumerate(self._labels):
-                value = weights[_ground0(index,i,indexerSize)]
+                value = weights[_ground0(index,i,indexerSize)] - baseline
                 if value!=0.0:
                     print(label.encode('utf-8'), fname, value, sep='\t', file=out)
             print(file=out)
@@ -698,7 +705,6 @@ class DiscriminativeTagger(object):
 
     def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
-        
         assert maxIters>0,maxIters
         assert earlyStopInterval is None or tuningData is not None
         print('training with the perceptron for up to',maxIters,'iterations', 
@@ -932,7 +938,8 @@ def main():
     inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
     #flag("max-test-instances", "During testing, truncate the data to the specified number of instances", ftype=int)
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
-    inflag("labels", "List of possible labels, one label per line")
+    inflag("YY", "List of possible labels, one label per line") # formerly: labels
+    flag("defaultY", "Default (background) label: model weights represent deviation from this label")
     flag("save", "Save path for serialized model file (training only). Associated output files (with --debug) will add a suffix to this path.")
     flag("load", "Path to serialized model file (decoding only)")   #inflag
     #inflag("properties", "Properties file with option defaults", default="tagger.properties")
@@ -969,8 +976,8 @@ def main():
     
     if args.train is None and args.load is None:
         raise Exception('Missing argument: --train or --load')
-    if args.labels is None and args.load is None:
-        raise Exception('Missing argument: --labels')
+    if args.YY is None and args.load is None:
+        raise Exception('Missing argument: --YY')
     
     global featureExtractor
     if args.mwe:
@@ -989,9 +996,11 @@ def main():
         #t.setBinaryFeats(False)
         print('done.', file=sys.stderr)
     else:
-        t = DiscriminativeTagger(cutoff=args.cutoff)
+        t = DiscriminativeTagger(cutoff=args.cutoff, defaultY=args.defaultY)
         #t.setBinaryFeats(False)
-        labels = DiscriminativeTagger.loadLabelList(args.labels, args.legacy0)
+        labels = DiscriminativeTagger.loadLabelList(args.YY, args.legacy0)
+        if t._defaultY is not None:
+            assert t._defaultY in labels,'Default label missing from list of all labels: {}'.format(t._defaultY)
         t._labels = labels  # TODO: "private" access
         #t._labels = ['0', 'B-noun.person', 'I-noun.person']  # TODO: debugging purposes
         
