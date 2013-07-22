@@ -9,6 +9,8 @@ import sys, os, gzip
 from nltk.corpus import wordnet as wn
 from nltk.tokenize import word_tokenize
 
+from pyutil.memoize import memoize
+
 morphMap = {} # pos -> {word -> stem}
 
 _options = {'useOldDataFormat': False,
@@ -18,6 +20,7 @@ def loadDefaults():
     # TODO: properties allowing for override of _options defaults
     pass
 
+@memoize
 def stem(w, p):
     '''
     Given a word and PTB part-of-speech tag, returns the lowercased 
