@@ -176,7 +176,7 @@ class MultiwordLexicon(object):
             l = sentence_lemmas[e-1]
             
             # single-word option
-            heappush(queue, (len(path)+e, e-1, e, [[l]]+path, ('o' if in_gap else 'O')+tags, [(e-1,('o' if in_gap else 'O'),False,None)]+tokinfo))
+            heappush(queue, (len(path)+e, e-1, e, [[l]]+path, ('o' if in_gap else 'O')+tags, [(e-1,('o' if in_gap else 'O'),[e-1],False,None)]+tokinfo))
             
             for cand in self.signatures_by_last_lemma(l):
                 b = e-len(cand)
@@ -187,12 +187,14 @@ class MultiwordLexicon(object):
                     newtags = 'B'+'I'*(len(cand)-1)
                     if in_gap:
                         newtags = newtags.lower()
-                    newtokinfo = [(b,('b' if in_gap else 'B'),False,candinfo)]+[(i,('i' if in_gap else 'I'),False,candinfo) for i in range(b+1,e)]
+                    myrange = range(b,e)
+                    newtokinfo = [(b,('b' if in_gap else 'B'),myrange,False,candinfo)]+[(i,('i' if in_gap else 'I'),myrange,False,candinfo) for i in range(b+1,e)]
                     heappush(queue, (len(path)+b+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
                 elif not in_gap and set(sentence_lemmas[start:e])>=set(cand):
                     subspans = gappy_match(cand, sentence_lemmas[:e], start=start)
                     if subspans:
                         assert len(subspans)>1,subspans
+                        myrange = [i for a,b,c in subspans for i in range(a,b)]
                         subspans = subspans[::-1]
                         newtags = ''
                         newpath = []
@@ -204,11 +206,11 @@ class MultiwordLexicon(object):
                             gpath, gtags, gtokinfo = self.shortest_path_decoding(sentence_lemmas[:ge], start=gb, in_gap=True)
                             newpath = gpath + newpath
                             newtags = gtags + 'I'*(after_gap[1]-after_gap[0]) + newtags
-                            newtokinfo = gtokinfo + [(i,'I',True,candinfo) for i in range(after_gap[0],after_gap[1])] + newtokinfo
+                            newtokinfo = gtokinfo + [(i,'I',myrange,True,candinfo) for i in range(after_gap[0],after_gap[1])] + newtokinfo
                         newpath = [cand, newpath]
                         b = before_gap[0]
                         newtags = 'B' + 'I'*(before_gap[1]-b-1) + newtags
-                        newtokinfo = [(b,'B',True,candinfo)] + [(i,'I',True,candinfo) for i in range(b+1,before_gap[1])] + newtokinfo
+                        newtokinfo = [(b,'B',myrange,True,candinfo)] + [(i,'I',myrange,True,candinfo) for i in range(b+1,before_gap[1])] + newtokinfo
                         # the cost of a gappy expression is 1 + the number of gaps
                         heappush(queue, (len(path)+b+1, b, e, newpath+path, newtags+tags, newtokinfo+tokinfo))
             
