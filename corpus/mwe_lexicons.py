@@ -54,6 +54,40 @@ class MultiwordLexicon(object):
     The *signature* of an entry is the tuple of lemmas of 
     lexicalized parts of the expression, in order.
     '''
+
+    SAID_POS_2_PENN = {'A': 'JJ',    # not a perfect mapping due to VBD/VBG participles :P
+                       'AP': 'JJ',
+                       'AUX': 'VB',
+                       'CONJ': 'CC', 
+                       'COMP': {'that': 'WDT',
+                                'which': 'WDT',
+                                'whichever': 'WDT',
+                                'what': 'WDT',
+                                None: 'IN'},
+                       'DEG': 'RB',
+                       'DET': 'DT',
+                       'MOD': 'MD',
+                       'NEG': 'RB',
+                       'NP': 'NN',
+                       'P': {'to': 'TO',
+                             None: 'IN'},
+                       'POSS': 'POS',
+                       'PP': 'IN',
+                       'PRON': 'PRP',
+                       'Q': {'all': 'DT',
+                             'some': 'DT',
+                             'many': 'DT',
+                             'few': 'DT',
+                             'several': 'DT', 
+                             'both': 'DT',
+                             'no': 'DT',
+                             None: 'CD'}, 
+                       "S": 'VB',
+                       "S'": 'VB',
+                       'V': 'VB',
+                       'VP': 'VB'
+                       }
+    
     def __init__(self, name, jsonPath=None):
         self._name = name
         self._entries = {}
@@ -67,8 +101,13 @@ class MultiwordLexicon(object):
             words = entry["words"]
             poses = [None]*len(words)
             if "poses" in entry and entry["poses"]:
-                assert entry["datasource"].lower()=='semcor',entry
-                poses = entry["poses"]
+                if entry["datasource"].lower()=='said':
+                    for i,p in enumerate(entry["poses"]):
+                        info = self.SAID_POS_2_PENN.get(p)
+                        poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
+                else:
+                    assert entry["datasource"].lower()=='semcor',entry
+                    poses = entry["poses"]
             elif entry["label"].startswith('NNP') or entry["label"].startswith('NE:'):
                 poses = ['NNP']*len(words)
             entry["lemmas"] = [morph.stem(w,p) for w,p in zip(words,poses)]
