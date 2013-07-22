@@ -104,6 +104,7 @@ class MultiwordLexicon(object):
                 if entry["datasource"].lower()=='said':
                     for i,p in enumerate(entry["poses"]):
                         info = self.SAID_POS_2_PENN.get(p)
+                        assert info,p
                         poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
                 else:
                     assert entry["datasource"].lower()=='semcor',entry
