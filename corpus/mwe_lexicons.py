@@ -55,7 +55,8 @@ class MultiwordLexicon(object):
     lexicalized parts of the expression, in order.
     '''
 
-    SAID_POS_2_PENN = {'A': 'JJ',    # not a perfect mapping due to VBD/VBG participles :P
+    SAID_POS_2_PENN = {',': ',', 
+                       'A': 'JJ',    # not a perfect mapping due to VBD/VBG participles :P
                        'AP': 'JJ',
                        'AUX': 'VB',
                        'CONJ': 'CC', 
