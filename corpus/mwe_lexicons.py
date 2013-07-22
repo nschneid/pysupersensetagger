@@ -68,6 +68,7 @@ class MultiwordLexicon(object):
                        'DET': 'DT',
                        'MOD': 'MD',
                        'NEG': 'RB',
+                       'N': 'NN',
                        'NP': 'NN',
                        'P': {'to': 'TO',
                              None: 'IN'},
