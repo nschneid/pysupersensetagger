@@ -85,6 +85,7 @@ class MultiwordLexicon(object):
                              None: 'CD'}, 
                        "S": 'VB',
                        "S'": 'VB',
+                       'TO': 'TO',
                        'V': 'VB',
                        'VP': 'VB'
                        }
