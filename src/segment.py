@@ -49,7 +49,10 @@ def main():
     
     for sent in SupersenseDataSet(args.data, [], legacy0=False):
         for tok,tokinfo in zip(sent,segment(sent)):
-            gold = tok.gold.replace('ī','i').replace('ĩ','i').replace('Ī','I').replace('Ĩ','I')
+            gold = tok.gold.replace('ī'.decode('utf-8'),'i') \
+                           .replace('ĩ'.decode('utf-8'),'i') \
+                           .replace('Ī'.decode('utf-8'),'I') \
+                           .replace('Ĩ'.decode('utf-8'),'I')
             if tokinfo[1]=='O':
                 result = '*MISS*' if gold!='O' else ''
             elif tokinfo[1]!=gold:
