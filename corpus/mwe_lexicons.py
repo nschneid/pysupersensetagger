@@ -102,8 +102,14 @@ class MultiwordLexicon(object):
             self.loadJSON(jsonPath)
     
     def _read_entry(self, entry):
+        ds = entry["datasource"].lower()
+        if ds=='wikimwe':
+            words = entry["lemmas"] # not actually always lemmatized
+            del entry["lemmas"]
+            entry["words"] = words
+        
         if "lemmas" not in entry:
-            ds = entry["datasource"].lower()
+            
             if 'lvc' in ds:
                 entry["lemmas"] = [entry["verblemma"], morph.stem(entry["noun"],'NN')]
             else:
@@ -118,7 +124,7 @@ class MultiwordLexicon(object):
                             assert info,p
                             poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
                     else:
-                        assert ds=='semcor',entry
+                        assert ds in {'semcor','wikimwe'},entry
                         poses = entry["poses"]
                 elif ds in {'phrases.net', "oyz's idioms"}:
                     pass
