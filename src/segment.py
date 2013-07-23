@@ -1,3 +1,4 @@
+#coding=utf-8
 '''
 Given one or more lexicons of multiword expressions 
 and input sentences, constructs a lattice of possible 
