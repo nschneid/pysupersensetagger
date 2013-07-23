@@ -339,7 +339,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 if not lbl.startswith('NE:') and SENSENUM.search(lbl):
                     lbl = '<sense-tagged>'
                 ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl] = 1
-                if True or entry["datasource"].lower()!='wikimwe':
+                if entry["datasource"].lower()!='wikimwe':
                     p1 = sent[expr_tokens[0]].pos
                     p2 = sent[expr_tokens[-1]].pos
                     ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
