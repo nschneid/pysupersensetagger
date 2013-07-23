@@ -47,7 +47,7 @@ def main():
     
     mwe_lexicons.load_combined_lexicon('all', args.lex)
     
-    for sent in SupersenseDataSet(args.data, [], legacy0=False):
+    for sent in SupersenseDataSet(args.data, list('OoBbIiĪīĨĩ'.decode('utf-8')), legacy0=False):
         for tok,tokinfo in zip(sent,segment(sent)):
             gold = tok.gold.replace('ī'.decode('utf-8'),'i') \
                            .replace('ĩ'.decode('utf-8'),'i') \
