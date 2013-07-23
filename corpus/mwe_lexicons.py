@@ -20,18 +20,32 @@ def load_lexicons(lexfiles):
         _lexicons[name] = MultiwordLexicon(name, lexfile)
         print(len(_lexicons[name]._entries), 'entries', file=sys.stderr)
 
-def gappy_match(needle, haystack, start=0):
+def load_combined_lexicon(name, lexfiles):
+    print('loading combined lexicon:', name, file=sys.stderr)
+    combined = MultiwordLexicon(name)
+    for lexfile in lexfiles:
+        print('  loading file:', os.path.split(lexfile.name.replace('.json',''))[-1], file=sys.stderr)
+        combined.loadJSON(lexfile)
+    print(len(combined._entries), 'total entries', file=sys.stderr)
+    _lexicons[name] = combined
+
+def gappy_match(needle, haystack, start=0, max_gap_length=None):
     '''
     @param needle: Sequence of tokens to match, in order, but possibly with intervening gaps.
     @param haystack: Sequence of tokens to search for a match in.
     @param start: First token that is eligible for inclusion in the match.
+    @param max_gap_length: Maximum number of words inside a gap. Unlimited by default. 
     
     If there are multiple matches (due to repeated words), smaller gaps are preferred.
     
     example result: [[2, 4, ['give', 'up']], [6, 7, ['on']]]
     '''
     h = ' '.join(haystack)
-    pattern = r'(?:^|\s)(' + r')(?:\s\S+)*?\s('.join(re.escape(w) for w in needle) + ')$'
+    if max_gap_length is not None:
+        assert max_gap_length>=0
+    gap_operator = '*' if max_gap_length is None else ('{,'+str(max_gap_length)+'}')
+    pattern = r'(?:^|\s)(' + (r')(?:\s\S+)'+gap_operator+r'?\s(').join(re.escape(w) for w in needle) + ')$'
+    #print(pattern, file=sys.stderr)
     m = re.search(pattern, h)
     if not m:
         return None
@@ -157,7 +171,7 @@ class MultiwordLexicon(object):
     def signatures_by_last_lemma(self, lemma):
         return self._bylast[lemma]
     
-    def shortest_path_decoding(self, sentence_lemmas, start=0, in_gap=False):
+    def shortest_path_decoding(self, sentence_lemmas, start=0, in_gap=False, max_gap_length=None):
         '''
         Use Dijkstra's algorithm to search a sentence from end to beginning 
         for a least-cost segmentation into lexical expressions according to 
@@ -197,7 +211,7 @@ class MultiwordLexicon(object):
                     newtokinfo = [(b,('b' if in_gap else 'B'),myrange,False,candinfo)]+[(i,('i' if in_gap else 'I'),myrange,False,candinfo) for i in range(b+1,e)]
                     heappush(queue, (len(path)+b+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
                 elif not in_gap and set(sentence_lemmas[start:e])>=set(cand):
-                    subspans = gappy_match(cand, sentence_lemmas[:e], start=start)
+                    subspans = gappy_match(cand, sentence_lemmas[:e], start=start, max_gap_length=max_gap_length)
                     if subspans:
                         assert len(subspans)>1,subspans
                         myrange = [i for a,b,c in subspans for i in range(a,b)]
