@@ -42,7 +42,7 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
-cdef float l2norm(float[:] weights):
+cdef float l2norm(weights):
     cdef float t
     t = 0.0
     for w in weights:
