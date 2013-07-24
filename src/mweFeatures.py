@@ -108,6 +108,7 @@ def extractLexiconCandidates(sent):
     Return a list of MWE membership information tuples for each token 
     according to that segmentation.
     '''
+    assert mwe_lexicons._lexicons
     sentence_lemmas = [t.stem for t in sent]
     return {lexiconname: lex.shortest_path_decoding(sentence_lemmas, max_gap_length=2)[2] 
             for lexiconname,lex in mwe_lexicons._lexicons.items()}
