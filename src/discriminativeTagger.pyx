@@ -610,7 +610,7 @@ class DiscriminativeTagger(object):
             if not o0FeatureMap and not o1FeatureMap:
                 raise Exception('No features found for this token')
             
-        for featIndex,current in enumerate(currentWeights): # need to update averages for *all* weights, or else store timestamps and use lazy updating, making sure to update all weights after the last iteration (http://blog.smola.org/post/943941371/lazy-updates-for-generic-regularization-in-sgd)
+        for featIndex in range(len(currentWeights)): # need to update averages for *all* weights, or else store timestamps and use lazy updating, making sure to update all weights after the last iteration (http://blog.smola.org/post/943941371/lazy-updates-for-generic-regularization-in-sgd)
             runningAverageWeights[featIndex] = (timestep*runningAverageWeights[featIndex] + currentWeights[featIndex])/(timestep+1)
             
         return len(updates)
