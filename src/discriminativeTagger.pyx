@@ -528,8 +528,12 @@ class DiscriminativeTagger(object):
             if self._defaultY is not None:
                 baseline = weights[_ground0(index,d,indexerSize)]
             for i,label in enumerate(self._labels):
-                value = weights[_ground0(index,i,indexerSize)] - baseline
-                if value!=0.0:
+                value = weights[_ground0(index,i,indexerSize)]
+                if value==0.0:
+                    value = 0
+                if self._defaultY is not None:
+                    print(label.encode('utf-8'), fname, value, value-baseline, sep='\t', file=out)
+                else:
                     print(label.encode('utf-8'), fname, value, sep='\t', file=out)
             print(file=out)
             
@@ -741,6 +745,7 @@ class DiscriminativeTagger(object):
             # hold on to the previous weights and store the new weights in an attribute
             prevWeights = self._weights
             self._weights = weights
+            print('l2(prevWeights) = {:.4}, l2(weights) = {:.4}'.format(l2norm(prevWeights),l2norm(weights)), file=sys.stderr)
             
             # if dev mode, save each model and human-readable weights file
             if developmentMode:
