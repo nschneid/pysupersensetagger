@@ -42,6 +42,13 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
+cdef float l2norm(float[:] weights):
+    cdef float t
+    t = 0.0
+    for w in weights:
+        t += w*w
+    return t**0.5
+
 #cdef float _scoreBound(float[:] weights, ):
 
 I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
@@ -783,7 +790,7 @@ class DiscriminativeTagger(object):
         After each iteration, the weights are yielded.'''
         
         print('decoding data type:', type(data), file=sys.stderr)
-        print('averaging:',averaging,'BIO:',useBIO,'costAug:',includeLossTerm,costAugVal, file=sys.stderr)
+        print('learning:',bool(maxTrainIters),'averaging:',averaging,'BIO:',useBIO,'costAug:',includeLossTerm,costAugVal, file=sys.stderr)
         
         MAX_NUM_TOKENS = 200
         nLabels = len(self._labels) # number of (actual) labels
@@ -803,11 +810,15 @@ class DiscriminativeTagger(object):
         
         update = (maxTrainIters>0)   # training?
         
-        # if averaging, finalWeights will contain a running average of the currentWeights vectors at all timesteps
         #finalWeights = [0.0]*nWeights
         #currentWeights = [0.0]*nWeights
-        finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        
+        # the model to decode with. if learning with averaging, contains the latest non-averaged weight vector. 
+        # otherwise same as finalWeights.
         currentWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        # the model to be written to disk. will be yielded after each iteration. includes averaging if applicable.
+        finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
         
         '''
         if update:
@@ -869,10 +880,12 @@ class DiscriminativeTagger(object):
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
             
-            print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
             
             if update and not averaging:
                 finalWeights = currentWeights
+            
+            print('l2(currentWeights) = {:.4}, l2(finalWeights) = {:.4}'.format(l2norm(currentWeights), l2norm(finalWeights)), file=sys.stderr)
+            print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
                 
             yield finalWeights
             
