@@ -163,17 +163,19 @@ class MultiwordLexicon(object):
     def load(self, entries):
         for entry in entries:
             self._read_entry(entry)
+        self._bylast = dict(self._bylast)   # convert from defaultdict
     
     def loadJSON(self, jsonF):
         for ln in jsonF:
             entry = json.loads(ln[:-1].decode('utf-8'))
             self._read_entry(entry)
+        self._bylast = dict(self._bylast)   # convert from defaultdict
     
     def __getitem__(self, signature):
         return self._entries[signature]
     
     def signatures_by_last_lemma(self, lemma):
-        return self._bylast[lemma]
+        return self._bylast.get(lemma) or ()
     
     def shortest_path_decoding(self, sentence_lemmas, start=0, in_gap=False, max_gap_length=None):
         '''
@@ -214,7 +216,7 @@ class MultiwordLexicon(object):
                     myrange = tuple(range(b,e))
                     newtokinfo = [(b,('b' if in_gap else 'B'),myrange,False,candinfo)]+[(i,('i' if in_gap else 'I'),myrange,False,candinfo) for i in range(b+1,e)]
                     heappush(queue, (len(path)+b+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
-                elif not in_gap and set(sentence_lemmas[start:e])>=set(cand):
+                elif not in_gap and max_gap_length!=0 and set(sentence_lemmas[start:e])>=set(cand):
                     subspans = gappy_match(cand, sentence_lemmas[:e], start=start, max_gap_length=max_gap_length)
                     if subspans:
                         assert len(subspans)>1,subspans
