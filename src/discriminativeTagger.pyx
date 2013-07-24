@@ -165,7 +165,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                         # compute correct score based on previous scores
                         score = dpValues[i-1,k]
                         
-                        # the score for the previou label is added on separately here,
+                        # the score for the previous label is added on separately here,
                         # in order to avoid computing the whole score--which only 
                         # depends on the previous label for one feature--a quadratic 
                         # number of times
@@ -544,7 +544,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights, learningRate=1.0):
+    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights, int[:] averagingTimestamps, learningRate=1.0):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -552,14 +552,15 @@ class DiscriminativeTagger(object):
         @param sent: the sentence, including gold and predicted tags
         @param o0Feats: active lifted zero-order features for each token
         @param currentWeights: latest value of the parameter value
-        @param timestamp: number of previou updates that have been applied
+        @param timestamp: number of previous updates that have been applied
         @param runningAverageWeights: average of the 'timestamp' previous weight vectors
+        @param averagingTimestamps: number of time slices reflected in the running average; initialize to 0
         @return: number of weights updated
         '''
         
         if sent.predictionsAreCorrect(): return 0
         
-        updates = set()
+        updates = {}    # index -> former value
         
         cdef int featIndex
         
@@ -575,16 +576,18 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, gold, self._featureIndexes)
+                if featIndex not in updates:
+                    updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
                 currentWeights[featIndex] += learningRate * v
-                updates.add(featIndex)
                 
             # first-order features
             if featureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, gold, self._featureIndexes)
+                    if featIndex not in updates:
+                        updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
                     currentWeights[featIndex] += learningRate * v
-                    updates.add(featIndex)
             
             if not o0FeatureMap and not o1FeatureMap:
                 raise Exception('No features found for this token')
@@ -596,22 +599,29 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, pred, self._featureIndexes)
+                if featIndex not in updates:
+                    updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
                 currentWeights[featIndex] -= learningRate * v
-                updates.add(featIndex)
                 
             # first-order features
             if featureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, pred, self._featureIndexes)
+                    if featIndex not in updates:
+                        updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
                     currentWeights[featIndex] -= learningRate * v
-                    updates.add(featIndex)
             
             if not o0FeatureMap and not o1FeatureMap:
                 raise Exception('No features found for this token')
             
-        for featIndex in range(len(currentWeights)): # need to update averages for *all* weights, or else store timestamps and use lazy updating, making sure to update all weights after the last iteration (http://blog.smola.org/post/943941371/lazy-updates-for-generic-regularization-in-sgd)
-            runningAverageWeights[featIndex] = (timestep*runningAverageWeights[featIndex] + currentWeights[featIndex])/(timestep+1)
+        for featIndex,formerVal in updates.items(): # lazy update of running average (cf. http://blog.smola.org/post/943941371/lazy-updates-for-generic-regularization-in-sgd)
+            t0 = averagingTimestamps[featIndex] # number of time slices covered by the running average so far
+            runningAverageWeights[featIndex] = (t0*runningAverageWeights[featIndex] + (timestep-t0)*formerVal + currentWeights[featIndex])/(timestep+1)
+            # N.B. if we updated in the previous timestep, then timestep==t0
+            averagingTimestamps[featIndex] = timestep+1
+            # once we have seen all the instances we will ensure the averages are all up to date
+            
             
         return len(updates)
     
@@ -829,6 +839,9 @@ class DiscriminativeTagger(object):
         finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
         
+        averagingTimestamps = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='i')
+        # initialized to 0
+        
         '''
         if update:
             yield finalWeights  # TODO: debugging: don't train at all!
@@ -866,7 +879,7 @@ class DiscriminativeTagger(object):
         
                 if update:
                     gamma_current *= gamma
-                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights, learningRate=gamma_current)
+                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights, averagingTimestamps, learningRate=gamma_current)
                     # will update currentWeights as well as running average in finalWeights
                     o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
@@ -890,8 +903,14 @@ class DiscriminativeTagger(object):
                     print('.', file=sys.stderr, end='')
             
             
-            if update and not averaging:
-                finalWeights = currentWeights
+            if update:
+                if averaging:   # ensure all parameter averages are up to date
+                    for featIndex in range(nWeights):
+                        t0 = averagingTimestamps[featIndex]
+                        if t0<totalInstancesProcessed:
+                            finalWeights[featIndex] = (t0*finalWeights[featIndex] + (totalInstancesProcessed-t0)*currentWeights[featIndex])/totalInstancesProcessed
+                else:
+                    finalWeights = currentWeights
             
             print('l2(currentWeights) = {:.4}, l2(finalWeights) = {:.4}'.format(l2norm(currentWeights), l2norm(finalWeights)), file=sys.stderr)
             print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
