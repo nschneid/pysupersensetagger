@@ -84,7 +84,7 @@ class SupersenseDataSet(DataSet):
                     label = 'O'
                 label = uintern(unicode(label))
                 pos = uintern(unicode(pos))
-                stemS = morph.stem(token,pos)
+                stemS = uintern(unicode(morph.stem(token,pos)))
                 sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
                 
             if len(sent)>0:
