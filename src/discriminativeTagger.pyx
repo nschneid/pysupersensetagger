@@ -738,12 +738,13 @@ class DiscriminativeTagger(object):
         prevNCorrect = prevTotCost = None
         nTuning = None
         
+        prevWeights = None
+        
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
                                                useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal)):
             
-            # hold on to the previous weights and store the new weights in an attribute
-            prevWeights = self._weights and list(self._weights)
+            # store the new weights in an attribute
             self._weights = weights
             print('l2(prevWeights) = {:.4}, l2(weights) = {:.4}'.format(l2norm(prevWeights or [0.0]),l2norm(weights)), file=sys.stderr)
             
@@ -783,6 +784,9 @@ class DiscriminativeTagger(object):
                         break
                 prevNCorrect = nCorrect
                 prevTotCost = totCost
+                
+            # hold on to the previous weights
+            prevWeights = list(self._weights)
         
         # save model
         if savePrefix is not None:
