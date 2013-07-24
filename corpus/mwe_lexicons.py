@@ -106,7 +106,13 @@ class MultiwordLexicon(object):
                        },
                 'baldwin vpc': {'V': 'VB',
                                 'P': {'to': 'TO',
-                                      None: 'IN'}}}
+                                      None: 'IN'}},
+                'wikimwe': { # TreeTagger tagset
+                            'NP': 'NNP', 'NPS': 'NNPS',
+                            'VD': 'VB', 'VDD': 'VBD', 'VDG': 'VBG', 'VDN': 'VBN', 'VDP': 'VBP', 'VDZ': 'VBZ', # do
+                            'VH': 'VB', 'VHD': 'VBD', 'VHG': 'VBG', 'VHN': 'VBN', 'VHP': 'VBP', 'VHZ': 'VBZ', # have
+                            'VV': 'VB', 'VVD': 'VBD', 'VVG': 'VBG', 'VVN': 'VBN', 'VVP': 'VBP', 'VVZ': 'VBZ', # verb other than do, have, or be
+                            'IN/that': 'IN'}}
     
     def __init__(self, name, jsonPath=None):
         self._name = name
@@ -121,6 +127,11 @@ class MultiwordLexicon(object):
             words = entry["lemmas"] # not actually always lemmatized
             del entry["lemmas"]
             entry["words"] = words
+        if ds in self.POS_2_PENN:   # map POSes to Penn Treebank tagset
+            for i,p in enumerate(entry["poses"]):
+                info = self.POS_2_PENN[ds].get(p,p)
+                entry["poses"][i] = info if isinstance(info,basestring) else (info.get(entry["lemmas" if ds=='baldwin vpc' else "words"][i]) or info[None])
+        
         
         if "lemmas" not in entry:
             
@@ -131,15 +142,8 @@ class MultiwordLexicon(object):
                 words = entry["words"]
                 poses = [None]*len(words)
                 if "poses" in entry and entry["poses"]:
-                    
-                    if ds=='said':
-                        for i,p in enumerate(entry["poses"]):
-                            info = self.POS_2_PENN[ds].get(p)
-                            assert info,p
-                            poses[i] = info if isinstance(info,basestring) else (info.get(words[i]) or info[None]) 
-                    else:
-                        assert ds in {'semcor','wikimwe'},entry
-                        poses = entry["poses"]
+                    assert ds in {'said','semcor','wikimwe'},entry
+                    poses = entry["poses"]
                 elif ds in {'phrases.net', "oyz's idioms"}:
                     pass
                 elif entry["label"].startswith('NNP') or entry["label"].startswith('NE:'):
