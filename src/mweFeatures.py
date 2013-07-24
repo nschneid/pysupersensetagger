@@ -263,11 +263,17 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         # - context POS up to 2 words away
         # - context word bigram
         # - context POS bigram
+        # - current lemma and context lemma up to 2 words away, if one of them is a verb 
+        #   and the other is a noun, verb, adjective, adverb, preposition, or particle
         for k in range(j-2,j+3):
             if k<0: continue
             elif k>len(sent)-1: break
             ff['w_{:+}'.format(k-j), sent[k].token.lower()] = 1
             ff['pos_{:+}'.format(k-j), sent[k].pos] = 1
+            if k!=j and ( \
+                    (sent[k].pos[0]=='V' and sent[j].pos[0] in {'V','N','J','I','R','T'}) \
+                 or (sent[j].pos[0]=='V' and sent[k].pos[0] in {'V','N','J','I','R','T'})):
+                    ff['lemma_+0,{:+}'.format(k-j), sent[j].stem, sent[k].stem] = 1
             if k<j+2 and k<len(sent)-1:
                 ff['w_{:+},{:+}'.format(k-j,k-j+1), sent[k].token.lower(), sent[k+1].token.lower()] = 1
                 ff['pos_{:+},{:+}'.format(k-j,k-j+1), sent[k].pos, sent[k+1].pos] = 1
