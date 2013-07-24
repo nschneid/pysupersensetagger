@@ -15,7 +15,7 @@ _lexicons = {}
 def load_lexicons(lexfiles):
     for lexfile in lexfiles:
         name = os.path.split(lexfile.name.replace('.json',''))[-1]
-        assert lexfile not in _lexicons
+        assert name not in _lexicons,(name,_lexicons.keys())
         print('loading lexicon:', name, end=' ', file=sys.stderr)
         _lexicons[name] = MultiwordLexicon(name, lexfile)
         print(len(_lexicons[name]._entries), 'entries', file=sys.stderr)
