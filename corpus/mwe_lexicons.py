@@ -11,23 +11,25 @@ from heapq import heappush, heappop
 import morph
 
 _lexicons = {}
+_lists = {}
 
-def load_lexicons(lexfiles):
+def load_lexicons(lexfiles, is_list=False):
     for lexfile in lexfiles:
         name = os.path.split(lexfile.name.replace('.json',''))[-1]
         assert name not in _lexicons,(name,_lexicons.keys())
-        print('loading lexicon:', name, end=' ', file=sys.stderr)
-        _lexicons[name] = MultiwordLexicon(name, lexfile)
-        print(len(_lexicons[name]._entries), 'entries', file=sys.stderr)
+        print('loading', ('list' if is_list else 'lexicon'), name, end=' ', file=sys.stderr)
+        resource = MultiwordLexicon(name, lexfile, is_list=is_list)
+        (_lists if is_list else _lexicons)[name] = resource
+        print(len(resource._entries), 'entries', file=sys.stderr)
 
-def load_combined_lexicon(name, lexfiles):
-    print('loading combined lexicon:', name, file=sys.stderr)
-    combined = MultiwordLexicon(name)
+def load_combined_lexicon(name, lexfiles, is_list=False):
+    print('loading combined', ('list' if is_list else 'lexicon'), name, file=sys.stderr)
+    combined = MultiwordLexicon(name, is_list=is_list)
     for lexfile in lexfiles:
         print('  loading file:', os.path.split(lexfile.name.replace('.json',''))[-1], file=sys.stderr)
         combined.loadJSON(lexfile)
     print(len(combined._entries), 'total entries', file=sys.stderr)
-    _lexicons[name] = combined
+    (_lists if is_list else _lexicons)[name] = combined
 
 def gappy_match(needle, haystack, start=0, max_gap_length=None):
     '''
@@ -114,10 +116,11 @@ class MultiwordLexicon(object):
                             'VV': 'VB', 'VVD': 'VBD', 'VVG': 'VBG', 'VVN': 'VBN', 'VVP': 'VBP', 'VVZ': 'VBZ', # verb other than do, have, or be
                             'IN/that': 'IN'}}
     
-    def __init__(self, name, jsonPath=None):
+    def __init__(self, name, jsonPath=None, is_list=False):
         self._name = name
         self._entries = {}
         self._bylast = defaultdict(set)
+        self._is_list = is_list
         if jsonPath is not None:
             self.loadJSON(jsonPath)
     
@@ -161,14 +164,21 @@ class MultiwordLexicon(object):
             raise
     
     def load(self, entries):
+        iln = 1
         for entry in entries:
             self._read_entry(entry)
+            iln += 1
         self._bylast = dict(self._bylast)   # convert from defaultdict
     
     def loadJSON(self, jsonF):
+        iln = 1
         for ln in jsonF:
             entry = json.loads(ln[:-1].decode('utf-8'))
+            if self._is_list:   # ranked list
+                assert "rank" not in entry
+                entry["rank"] = iln
             self._read_entry(entry)
+            iln += 1
         self._bylast = dict(self._bylast)   # convert from defaultdict
     
     def __getitem__(self, signature):
