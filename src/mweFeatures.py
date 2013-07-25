@@ -108,7 +108,7 @@ def extractLexiconCandidates(sent):
     Return a list of MWE membership information tuples for each token 
     according to that segmentation.
     '''
-    assert mwe_lexicons._lexicons
+    #assert mwe_lexicons._lexicons   # actually, depends on whether any --lex args are present...
     sentence_lemmas = [t.stem for t in sent]
     return {lexiconname: lex.shortest_path_decoding(sentence_lemmas, max_gap_length=2)[2] 
             for lexiconname,lex in mwe_lexicons._lexicons.items()}
@@ -365,7 +365,13 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                     for n in range(1,N+1):
                         ff['#lex-matches',p1,'...',p2,'>=',str(n)] = 1
                 
-        # TODO: collocation
+        # - collocation extraction lists
+        # lists for 6 collocation classes: adj-noun noun-noun preposition-noun verb-noun verb-preposition verb-particle 
+        # each list ranks lemma pairs using the t-test.
+        # considering each list separately, we segment the sentence preferring higher-ranked items 
+        # (requiring lemmas and coarse POSes to match). 
+        # fire features indicating (a) B vs. I match, and (b) whether the rank in the top {25,50,75,100,150,200,300,...,900,1000,2000,...}, 
+        # (c) gappiness?
         
         sentpos = ''.join(coarsen(w.pos) for w in sent)
         cposj = coarsen(sent[j].pos)
