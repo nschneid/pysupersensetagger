@@ -24,6 +24,10 @@ def hasFirstOrderFeatures():
 def registerOpts(program_args):
     if program_args.lex is not None:
         mwe_lexicons.load_lexicons(program_args.lex)
+    if program_args.clist is not None:
+        #mwe_lexicons.load_combined_lexicon('mwetoolkit YelpAcademic', [f for f in program_args.clist if f.name.startswith('mwetk.yelpAcademic')], is_list=True)
+        #mwe_lexicons.load_lexicons([f for f in program_args.clist if not f.name.startswith('mwetk.yelpAcademic')], is_list=True)
+        mwe_lexicons.load_lexicons(program_args.clist, is_list=True)
 
 """
 _options = {'usePrefixAndSuffixFeatures': False, 
@@ -103,15 +107,17 @@ def loadDefaults(oldClusterFormat=False):
 
 def extractLexiconCandidates(sent):
     '''
-    For each lexicon, compute the shortest-path lexical segmentation 
+    For each lexicon and collocation list, compute the shortest-path lexical segmentation 
     of the sentence under that lexicon. 
     Return a list of MWE membership information tuples for each token 
     according to that segmentation.
     '''
     #assert mwe_lexicons._lexicons   # actually, depends on whether any --lex args are present...
     sentence_lemmas = [t.stem for t in sent]
-    return {lexiconname: lex.shortest_path_decoding(sentence_lemmas, max_gap_length=2)[2] 
-            for lexiconname,lex in mwe_lexicons._lexicons.items()}
+    return ({lexiconname: lex.shortest_path_decoding(sentence_lemmas, max_gap_length=2)[2] 
+            for lexiconname,lex in mwe_lexicons._lexicons.items()}, 
+            {listname: lex.shortest_path_decoding(sentence_lemmas, max_gap_length=2)[2] 
+            for listname,lex in mwe_lexicons._lists.items()})
 
 
 """
@@ -202,8 +208,10 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
 DIGIT_RE = re.compile(r'\d')
 SENSENUM = re.compile(r'\.(\d\d|XX)')
 
+THRESHOLDS = [25,50,75,100,150]+range(200,1000,100)+range(10**3,10**4,10**3)+range(10**4,10**5,10**4)+range(10**5,10**6,10**5)
+
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
-                         lexiconCandidatesThisSent=None):
+                         candidatesThisSentence=None):
     '''
     Extracts a map of feature names to values for a particular token in a sentence.
     These can be aggregated to get the feature vector or score for a whole sentence.
@@ -217,6 +225,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
     @return: feature name -> value
     '''
     
+    lexiconCandidates, listCandidates = candidatesThisSentence or ({}, {})
     
     ff = IndexedFeatureMap(indexer) if indexer is not None else {}
     
@@ -326,7 +335,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         
         
         nMatches = Counter()
-        for lexiconname,segmentation in lexiconCandidatesThisSent.items():
+        for lexiconname,segmentation in lexiconCandidates.items():
             toffset,tag,expr_tokens,is_gappy_expr,entry = segmentation[j]
             assert toffset==j
             if lexiconname=='wordnet_mwes':
@@ -353,7 +362,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                     nMatches[p1,p2] += 1
                 nMatches[None,None] += 1
             else:
-                ff['lex',lexiconname,tag.upper()] = 1
+                ff['lex',lexiconname,'O'] = 1
             
         if nMatches[None,None]==0:
             ff['#lex-matches=','0'] = 1
@@ -364,17 +373,40 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 if (p1,p2)!=(None,None):
                     for n in range(1,N+1):
                         ff['#lex-matches',p1,'...',p2,'>=',str(n)] = 1
-                
+        
+        #sentpos = ''.join(coarsen(w.pos) for w in sent)
+        #cposj = coarsen(sent[j].pos)
+        
+        
         # - collocation extraction lists
         # lists for 6 collocation classes: adj-noun noun-noun preposition-noun verb-noun verb-preposition verb-particle 
         # each list ranks lemma pairs using the t-test.
         # considering each list separately, we segment the sentence preferring higher-ranked items 
         # (requiring lemmas and coarse POSes to match). 
-        # fire features indicating (a) B vs. I match, and (b) whether the rank in the top {25,50,75,100,150,200,300,...,900,1000,2000,...}, 
+        # fire features indicating (a) B vs. I match, and (b) whether the rank in the top 
+        # {25,50,75,100,150,200,300,...,900,1000,2000,...,9000,10k,20k,...90k,100k,200k,...}, 
         # (c) gappiness?
         
-        sentpos = ''.join(coarsen(w.pos) for w in sent)
-        cposj = coarsen(sent[j].pos)
         
-        
+        for listname,segmentation in listCandidates.items():
+            toffset,tag,expr_tokens,is_gappy_expr,entry = segmentation[j]
+            assert toffset==j
+            
+            if tag.upper()!='O':
+                lbl = entry["label"]
+                is_phrasenator = (entry["datasource"].lower()=='phrasenator')
+                ff['list',listname,tag.upper(),str(is_gappy_expr),lbl] = 1
+                if is_phrasenator:
+                    ff['list',listname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
+                r = entry["rank"]
+                for t in THRESHOLDS:
+                    if r>t: break
+                    ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl] = 1
+                    if is_phrasenator:
+                        ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
+                p1 = sent[expr_tokens[0]].pos
+                p2 = sent[expr_tokens[-1]].pos
+            else:
+                ff['list',listname,'O'] = 1
+                
     return ff

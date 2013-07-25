@@ -1014,6 +1014,7 @@ def main():
     boolflag("pos-neighbors", "POS neighbor features")
     
     inflag("lex", "Lexicons to load for lookup features", nargs='*')
+    inflag("clist", "Collocation lists (ranked) to load for lookup features", nargs='*')
     
     args = opts.parse_args()
     

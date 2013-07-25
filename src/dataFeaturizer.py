@@ -118,7 +118,7 @@ class SupersenseFeaturizer(object):
                                                                                    usePredictedLabels=False, 
                                                                                    orders={0}, 
                                                                                    indexer=self._featureIndexes, 
-                                                                                   lexiconCandidatesThisSent=lexiconCandidatesThisSent)
+                                                                                   candidatesThisSentence=lexiconCandidatesThisSent)
                     
                     if not o0FeatureMap:
                         raise Exception('No 0-order features found for this token')

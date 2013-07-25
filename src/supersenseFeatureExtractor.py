@@ -395,7 +395,7 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
 DIGIT_RE = re.compile(r'\d')
 
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
-                         lexiconCandidatesThisSent=None):
+                         candidatesThisSentence=None):
     '''
     Extracts a map of feature names to values for a particular token in a sentence.
     These can be aggregated to get the feature vector or score for a whole sentence.
@@ -488,8 +488,8 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         sentpos = ''.join(coarsen(w.pos) for w in sent)
         cposj = coarsen(sent[j].pos)
         
-        if lexiconCandidatesThisSent is not None:
-            contig, gappy = lexiconCandidatesThisSent
+        if candidatesThisSentence is not None:
+            contig, gappy = candidatesThisSentence
             nContig = 0
             for c,entry in contig[j]:
                 lbl = entry["label"] if not DIGIT_RE.search(entry["label"]) else ''
