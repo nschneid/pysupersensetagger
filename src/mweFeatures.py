@@ -396,16 +396,18 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 lbl = entry["label"]
                 is_phrasinator = (entry["datasource"].lower().startswith('phrasinator'))
                 ff['list',listname,tag.upper(),str(is_gappy_expr),lbl] = 1
-                if is_phrasinator:
-                    ff['list',listname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
+                
                 r = entry["rank"]
                 for t in THRESHOLDS:
                     if r>t: break
                     ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl] = 1
                     if is_phrasinator:
                         ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
+                
                 p1 = sent[expr_tokens[0]].pos
                 p2 = sent[expr_tokens[-1]].pos
+                if is_phrasinator:
+                    ff['list',listname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
             else:
                 ff['list',listname,'O'] = 1
                 
