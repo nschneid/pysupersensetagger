@@ -208,7 +208,7 @@ CPOS_PAIRS = [{'V','V'},{'V','N'},{'V','R'},{'V','T'},{'V','M'},{'V','P'},
 DIGIT_RE = re.compile(r'\d')
 SENSENUM = re.compile(r'\.(\d\d|XX)')
 
-THRESHOLDS = [25,50,75,100,150]+range(200,1000,100)+range(10**3,10**4,10**3)+range(10**4,10**5,10**4)+range(10**5,10**6,10**5)
+THRESHOLDS = [25,50,75,100,150]+range(200,1000,100)+range(10**3,10**4,10**3)+range(10**4,10**5,10**4)+range(10**5,10**6,10**5)+range(10**6,10**7,10**6)
 
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
                          candidatesThisSentence=None):
@@ -394,15 +394,15 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             
             if tag.upper()!='O':
                 lbl = entry["label"]
-                is_phrasenator = (entry["datasource"].lower()=='phrasenator')
+                is_phrasinator = (entry["datasource"].lower().startswith('phrasinator'))
                 ff['list',listname,tag.upper(),str(is_gappy_expr),lbl] = 1
-                if is_phrasenator:
+                if is_phrasinator:
                     ff['list',listname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
                 r = entry["rank"]
                 for t in THRESHOLDS:
                     if r>t: break
                     ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl] = 1
-                    if is_phrasenator:
+                    if is_phrasinator:
                         ff['list',listname,'rank<={}'.format(t), tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1
                 p1 = sent[expr_tokens[0]].pos
                 p2 = sent[expr_tokens[-1]].pos
