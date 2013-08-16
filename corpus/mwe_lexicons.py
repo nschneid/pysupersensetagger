@@ -27,7 +27,8 @@ def load_combined_lexicon(name, lexfiles, is_list=False):
     combined = MultiwordLexicon(name, is_list=is_list)
     for lexfile in lexfiles:
         print('  loading file:', os.path.split(lexfile.name.replace('.json',''))[-1], file=sys.stderr)
-        combined.loadJSON(lexfile)
+        combined.loadJSON(lexfile, more=True)
+    combined._bylast = dict(combined._bylast)   # convert from defaultdict
     print(len(combined._entries), 'total entries', file=sys.stderr)
     (_lists if is_list else _lexicons)[name] = combined
 
@@ -170,7 +171,7 @@ class MultiwordLexicon(object):
             iln += 1
         self._bylast = dict(self._bylast)   # convert from defaultdict
     
-    def loadJSON(self, jsonF):
+    def loadJSON(self, jsonF, more=False):
         iln = 1
         for ln in jsonF:
             entry = json.loads(ln[:-1].decode('utf-8'))
@@ -179,7 +180,8 @@ class MultiwordLexicon(object):
                 entry["rank"] = iln
             self._read_entry(entry)
             iln += 1
-        self._bylast = dict(self._bylast)   # convert from defaultdict
+        if not more:
+            self._bylast = dict(self._bylast)   # convert from defaultdict
     
     def __getitem__(self, signature):
         return self._entries[signature]
