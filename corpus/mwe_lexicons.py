@@ -195,16 +195,24 @@ class MultiwordLexicon(object):
         or a multiword unit from this lexicon. 
         
         Longer expressions are preferred over shorter ones. 
-        Each expression has a cost of 1; additionally, gappy expressions 
-        incur a cost of 1 for each gap. A recursive call with in_gap=True 
-        will compute the least-cost contiguous segmentation nested within each gap 
-        (this will not contribute to the cost of the "outer" segmentation).
+        Each top-level expression has a cost of 1; each expression within 
+        a gap has a cost of 1.25. A recursive call with in_gap=True 
+        will compute the least-cost contiguous segmentation nested within each gap.
+        
+        Example costs:
+        
+        a_b c (2) < a_ b _c (2.25) < a b c (3)
+        
+        a_b_c d (2) = a_b c_d (2) < a_ b _c_d (2.25) = a_ b_c _d (2.25) < a b_c d (3) 
+          < a_ b _c d (3.25) < a_ b c _d (3.5) < a b c d (4)
+        
+        a_b_c d e (3) = a_b c_d e (3) < a_ b _c d_e (3.25) < a_ b _c_ d _e (3.5) 
+          < a_b c d e (4) < a b c d e (5)
         '''
         # cost value is the number of edges in the path
         queue = []
         e = len(sentence_lemmas)
         assert 0<=start<e
-        est_val = float('inf')  # estimated cost (A* heuristic value)
         path = []
         tokinfo = []
         tags = ''
@@ -212,8 +220,8 @@ class MultiwordLexicon(object):
             l = sentence_lemmas[e-1]
             
             # single-word option
-            heappush(queue, (len(path)+e, e-1, e, [[l]]+path, ('o' if in_gap else 'O')+tags, [(e-1,('o' if in_gap else 'O'),(e-1,),False,None)]+tokinfo))
-            
+            heappush(queue, (len(path)+1, e-1, e, [[l]]+path, ('o' if in_gap else 'O')+tags, [(e-1,('o' if in_gap else 'O'),(e-1,),False,None)]+tokinfo))
+            #+e
             for cand in self.signatures_by_last_lemma(l):
                 b = e-len(cand)
                 if b<start: continue
@@ -225,7 +233,8 @@ class MultiwordLexicon(object):
                         newtags = newtags.lower()
                     myrange = tuple(range(b,e))
                     newtokinfo = [(b,('b' if in_gap else 'B'),myrange,False,candinfo)]+[(i,('i' if in_gap else 'I'),myrange,False,candinfo) for i in range(b+1,e)]
-                    heappush(queue, (len(path)+b+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
+                    heappush(queue, (len(path)+1, b, e, [cand]+path, newtags+tags, newtokinfo+tokinfo))
+                    #+b+1
                 elif not in_gap and max_gap_length!=0 and set(sentence_lemmas[start:e])>=set(cand):
                     subspans = gappy_match(cand, sentence_lemmas[:e], start=start, max_gap_length=max_gap_length)
                     if subspans:
@@ -235,11 +244,13 @@ class MultiwordLexicon(object):
                         newtags = ''
                         newpath = []
                         newtokinfo = []
+                        gapCost = 0
                         for before_gap,after_gap in zip(subspans[1:],subspans[:-1]):
                             gb = before_gap[1]
                             ge = after_gap[0]
                             assert ge>0, (cand, sentence_lemmas[:e], start, subspans)
                             gpath, gtags, gtokinfo = self.shortest_path_decoding(sentence_lemmas[:ge], start=gb, in_gap=True)
+                            gapCost += 1.25*(len(gtags)-gtags.count('i'))  # 1.25 * count of in-gap lexical expressions
                             newpath = gpath + newpath
                             newtags = gtags + 'I'*(after_gap[1]-after_gap[0]) + newtags
                             newtokinfo = gtokinfo + [(i,'I',myrange,True,candinfo) for i in range(after_gap[0],after_gap[1])] + newtokinfo
@@ -247,13 +258,12 @@ class MultiwordLexicon(object):
                         b = before_gap[0]
                         newtags = 'B' + 'I'*(before_gap[1]-b-1) + newtags
                         newtokinfo = [(b,'B',myrange,True,candinfo)] + [(i,'I',myrange,True,candinfo) for i in range(b+1,before_gap[1])] + newtokinfo
-                        # the cost of a gappy expression is 1 + the number of gaps
-                        heappush(queue, (len(path)+b+1, b, e, newpath+path, newtags+tags, newtokinfo+tokinfo))
-            
+                        heappush(queue, (len(path)+1+gapCost, b, e, newpath+path, newtags+tags, newtokinfo+tokinfo))
+                        #+b+1
             if not queue:
                 raise Exception('Something went wrong: '+repr(sentence_lemmas))
 
-            est_val, e, _, path, tags, tokinfo = heappop(queue)   # old beginning is the new end
+            val, e, _, path, tags, tokinfo = heappop(queue)   # old beginning is the new end
             if e==start:
                 # found a shortest path from the end to the specified start
                 assert len(tags)==len(tokinfo)==len(sentence_lemmas[start:])
@@ -262,16 +272,16 @@ class MultiwordLexicon(object):
 
 def test():
     lex = MultiwordLexicon('Lex!')
-    lex.load([{'lemmas': ['louis', 'xiv'], 'label': 'NE'},
-              {'lemmas': ['louis', 'armstrong'], 'label': 'NE'},
-              {'lemmas': ['neil', 'armstrong'], 'label': 'NE'},
-              {'lemmas': ['good', "ol'"], 'label': 'Idiom'},
-              {'lemmas': ['give', '_sb_', "_sb's_", 'due'], 'label': 'Idiom'},
-              {'lemmas': ['give', 'up', 'the', 'ghost'], 'label': 'Idiom'},
-              {'lemmas': ['give', 'up', 'the', 'ghost', 'on'], 'label': 'Idiom'}, 
-              {'lemmas': ['give', 'up', 'the', 'ghost', 'on', '_sb_'], 'label': 'Idiom'}, 
-              {'lemmas': ['give', 'up', 'on', '_sb_'], 'label': 'Idiom'},
-              {'lemmas': ['something', "'s", 'gotta', 'give'], 'label': 'Idiom'}])
+    lex.load([{'lemmas': ['louis', 'xiv'], 'label': 'NE', 'datasource': '_'},
+              {'lemmas': ['louis', 'armstrong'], 'label': 'NE', 'datasource': '_'},
+              {'lemmas': ['neil', 'armstrong'], 'label': 'NE', 'datasource': '_'},
+              {'lemmas': ['good', "ol'"], 'label': 'Idiom', 'datasource': '_'},
+              {'lemmas': ['give', '_sb_', "_sb's_", 'due'], 'label': 'Idiom', 'datasource': '_'},
+              {'lemmas': ['give', 'up', 'the', 'ghost'], 'label': 'Idiom', 'datasource': '_'},
+              {'lemmas': ['give', 'up', 'the', 'ghost', 'on'], 'label': 'Idiom', 'datasource': '_'}, 
+              {'lemmas': ['give', 'up', 'the', 'ghost', 'on', '_sb_'], 'label': 'Idiom', 'datasource': '_'}, 
+              {'lemmas': ['give', 'up', 'on', '_sb_'], 'label': 'Idiom', 'datasource': '_'},
+              {'lemmas': ['something', "'s", 'gotta', 'give'], 'label': 'Idiom', 'datasource': '_'}])
     print(lex._entries)
     print()
     print(lex._bylast)
@@ -284,10 +294,11 @@ def test():
                  "Louis Armstrong 's due must be give him .".lower().split(), 
                  'You gotta give old Louis Armstrong his due .'.lower().split(), 
                  "You gotta give good ol' Louis Armstrong his due .".lower().split(), 
+                 "Louis Armstrong XIV".lower().split(), 
                  ]
     for sent in sentences:
         path, tags, tokinfo = lex.shortest_path_decoding(sent)
-        assert tags==''.join(tag for toffset,tag,gappy_expr,entry in tokinfo)
+        assert tags==''.join(tag for toffset,tag,expr_tokens,is_gappy_expr,entry in tokinfo)
         print(path,tags,tokinfo)
         
 
