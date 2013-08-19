@@ -304,9 +304,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 ff['pos_{:+},{:+}'.format(k-j,k-j+1), sent[k].pos, sent[k+1].pos] = 1
             if clusterMap and (k==j or abs(k-j)==1): # current and neighbor clusters
                 clustid, keywords = wordClusterID(sent[k].token.lower())
-                ff['c_{:+1}'.format(k-j), clustid, keywords] = 1
+                ff['c_{:+1}'.format(k-j), clustid, keywords or ''] = 1
                 if k!=j:
-                    ff['lemma_+0,c_{:+}'.format(k-j), sent[j].stem, clustid, keywords] = 1
+                    ff['lemma_+0,c_{:+}'.format(k-j), sent[j].stem, clustid, keywords or ''] = 1
         
         # - word + context POS
         # - POS + context word
