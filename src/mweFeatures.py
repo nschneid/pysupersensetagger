@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from nltk.corpus import wordnet as wn
 
 from pyutil.memoize import memoize
+from pyutil.ds.beam import Beam
 from pyutil.ds.features import IndexedFeatureMap
 from pyutil.ds.trie import Trie
 from pyutil.corpus import mwe_lexicons
@@ -21,6 +22,9 @@ DATADIR = SRCDIR+'/../data'
 def hasFirstOrderFeatures():
     return True
 
+clusterMap = None
+topClusterMembers = defaultdict(lambda: Beam(3))
+
 def registerOpts(program_args):
     if program_args.lex is not None:
         mwe_lexicons.load_lexicons(program_args.lex)
@@ -28,6 +32,40 @@ def registerOpts(program_args):
         #mwe_lexicons.load_combined_lexicon('mwetoolkit YelpAcademic', [f for f in program_args.clist if f.name.startswith('mwetk.yelpAcademic')], is_list=True)
         #mwe_lexicons.load_lexicons([f for f in program_args.clist if not f.name.startswith('mwetk.yelpAcademic')], is_list=True)
         mwe_lexicons.load_lexicons(program_args.clist, is_list=True)
+    if program_args.clusters:
+        loadClusters(program_args.cluster_file)
+
+def loadClusters(clusterFile, oldClusterFormat=False):
+    global clusterMap
+    clusterMap = {}
+    
+    print("loading word clusters...", file=sys.stderr);
+    with gzip.open(clusterFile) as clusterF:
+        if oldClusterFormat:    # each line is a cluster, with space-separated words
+            clusterID = 0
+            for ln in clusterF:
+                ww = re.split(r'\s', ln)
+                for w in ww:
+                    clusterMap[w] = clusterID
+                    topClusterMembers[clusterID][w] = 1
+                clusterID += 1
+        else:   # each line contains a cluster ID (bitstring for Brown clusters), a word type, and a count
+            for ln in clusterF:
+                clusterID, w, n = ln[:-1].split('\t')
+                w = w.decode('utf-8')
+                clusterMap[w] = clusterID
+                topClusterMembers[clusterID][w] = int(n)
+    
+    for k in topClusterMembers.keys():
+        topClusterMembers[k] = '_'.join(topClusterMembers[k].keys())
+        
+    print("done.", file=sys.stderr);
+
+@memoize
+def wordClusterID(word):
+    cid = clusterMap.get(word.lower(), 'UNK')
+    if cid=='UNK': return cid, None
+    return 'C'+str(cid), topClusterMembers[cid]
 
 """
 _options = {'usePrefixAndSuffixFeatures': False, 
@@ -80,29 +118,7 @@ senseCountMap = {} # pos -> {word -> number of senses}
 possibleSensesMap = {} # stem -> set of possible supersenses
 
 
-def loadDefaults(oldClusterFormat=False):
-    # TODO: properties allowing for override of _options defaults
-    global clusterMap
-    if _options['useClusterFeatures'] and clusterMap is None:
-        # load clusters
-        print("loading word cluster information...", file=sys.stderr);
-        clusterMap = {}
-        clusterFile = _options['clusterFile']
-        with gzip.open(clusterFile) as clusterF:
-            if oldClusterFormat:    # each line is a cluster, with space-separated words
-                clusterID = 0
-                for ln in clusterF:
-                    ww = re.split(r'\s', ln)
-                    for w in ww:
-                        clusterMap[w] = clusterID
-                    clusterID += 1
-            else:   # each line contains a cluster ID (bitstring for Brown clusters), a word type, and a count
-                for ln in clusterF:
-                    clusterID, w, n = ln[:-1].split('\t')
-                    clusterMap[w.decode('utf-8')] = clusterID
-                    
-                
-        print("done.", file=sys.stderr);
+
 """
 
 def extractLexiconCandidates(sent):
@@ -241,7 +257,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         ff[()] = 1
         
         # first sense features
-        # cluster features
+        
          
         # original token, token position-in-sentence features
         if sent[j].token[0].isupper():
@@ -286,6 +302,11 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             if k<j+2 and k<len(sent)-1:
                 ff['w_{:+},{:+}'.format(k-j,k-j+1), sent[k].token.lower(), sent[k+1].token.lower()] = 1
                 ff['pos_{:+},{:+}'.format(k-j,k-j+1), sent[k].pos, sent[k+1].pos] = 1
+            if clusterMap and (k==j or abs(k-j)==1): # current and neighbor clusters
+                clustid, keywords = wordClusterID(sent[k].token.lower())
+                ff['c_{:+1}'.format(k-j), clustid, keywords] = 1
+                if k!=j:
+                    ff['lemma_+0,c_{:+}'.format(k-j), sent[j].stem, clustid, keywords]
         
         # - word + context POS
         # - POS + context word
