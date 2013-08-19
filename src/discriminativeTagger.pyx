@@ -42,12 +42,19 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 
-cdef float l2norm(weights):
+cdef float l2norm(float[:] weights):
     cdef float t
+    cdef int i
     t = 0.0
-    for w in weights:
-        t += w*w
+    for i in range(weights.shape[0]):
+        t += weights[i]*weights[i]
     return t**0.5
+
+cdef void average_weights(float[:] finalWeights, float[:] currentWeights, float[:] avgWeightDeltas, int timestep):
+    '''Final step of weight averaging. See Hal Daume's thesis, Figure 2.3.'''
+    cdef int i  # feature index
+    for i in range(finalWeights.shape[0]):
+        finalWeights[i] = currentWeights[i] - avgWeightDeltas[i]/timestep
 
 #cdef float _scoreBound(float[:] weights, ):
 
@@ -544,7 +551,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, runningAverageWeights, int[:] averagingTimestamps, learningRate=1.0):
+    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -552,15 +559,17 @@ class DiscriminativeTagger(object):
         @param sent: the sentence, including gold and predicted tags
         @param o0Feats: active lifted zero-order features for each token
         @param currentWeights: latest value of the parameter value
-        @param timestamp: number of previous updates that have been applied
-        @param runningAverageWeights: average of the 'timestamp' previous weight vectors
-        @param averagingTimestamps: number of time slices reflected in the running average; initialize to 0
+        @param timestep: number of training instances seen so far, including this one (always positive)
+        @param avgWeightDeltas: number of iterations times the difference between the current weight vector and the weight averages
+        (for efficient averaging as described in Hal Daume's thesis, Figure 2.3)
         @return: number of weights updated
         '''
         
+        assert timestep>0
+        
         if sent.predictionsAreCorrect(): return 0
         
-        updates = {}    # index -> former value
+        updates = set()    # indices of weights updated
         
         cdef int featIndex
         
@@ -576,18 +585,18 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, gold, self._featureIndexes)
-                if featIndex not in updates:
-                    updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
+                updates.add(featIndex)
                 currentWeights[featIndex] += learningRate * v
+                avgWeightDeltas[featIndex] += timestep * learningRate * v
                 
             # first-order features
             if featureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, gold, self._featureIndexes)
-                    if featIndex not in updates:
-                        updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
+                    updates.add(featIndex)
                     currentWeights[featIndex] += learningRate * v
+                    avgWeightDeltas[featIndex] += timestep * learningRate * v
             
             if not o0FeatureMap and not o1FeatureMap:
                 raise Exception('No features found for this token')
@@ -599,30 +608,22 @@ class DiscriminativeTagger(object):
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, pred, self._featureIndexes)
-                if featIndex not in updates:
-                    updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
+                updates.add(featIndex)
                 currentWeights[featIndex] -= learningRate * v
+                avgWeightDeltas[featIndex] -= timestep * learningRate * v
                 
             # first-order features
             if featureExtractor.hasFirstOrderFeatures() and i>0:
                 o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, pred, self._featureIndexes)
-                    if featIndex not in updates:
-                        updates[featIndex] = currentWeights[featIndex]  # cache former value for averaging
+                    updates.add(featIndex)
                     currentWeights[featIndex] -= learningRate * v
+                    avgWeightDeltas[featIndex] -= timestep * learningRate * v
             
             if not o0FeatureMap and not o1FeatureMap:
                 raise Exception('No features found for this token')
-            
-        for featIndex,formerVal in updates.items(): # lazy update of running average (cf. http://blog.smola.org/post/943941371/lazy-updates-for-generic-regularization-in-sgd)
-            t0 = averagingTimestamps[featIndex] # number of time slices covered by the running average so far
-            runningAverageWeights[featIndex] = (t0*runningAverageWeights[featIndex] + (timestep-t0)*formerVal + currentWeights[featIndex])/(timestep+1)
-            # N.B. if we updated in the previous timestep, then timestep==t0
-            averagingTimestamps[featIndex] = timestep+1
-            # once we have seen all the instances we will ensure the averages are all up to date
-            
-            
+        
         return len(updates)
     
     def _createFeatures(self, trainingData, sentIndices=slice(0,None)):
@@ -756,7 +757,7 @@ class DiscriminativeTagger(object):
             
             # store the new weights in an attribute
             self._weights = weights
-            print('l2(prevWeights) = {:.4}, l2(weights) = {:.4}'.format(l2norm(prevWeights or [0.0]),l2norm(weights)), file=sys.stderr)
+            print('l2(prevWeights) = {:.4}, l2(weights) = {:.4}'.format(l2norm(prevWeights) if prevWeights else 0.0,l2norm(weights)), file=sys.stderr)
             
             # if dev mode, save each model and human-readable weights file
             if developmentMode:
@@ -796,7 +797,7 @@ class DiscriminativeTagger(object):
                 prevTotCost = totCost
                 
             # hold on to the previous weights
-            prevWeights = list(self._weights)
+            prevWeights = self._weights.copy()
         
         # save model
         if savePrefix is not None:
@@ -838,8 +839,7 @@ class DiscriminativeTagger(object):
         # the model to be written to disk. will be yielded after each iteration. includes averaging if applicable.
         finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
-        
-        averagingTimestamps = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='i')
+        avgWeightDeltas = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         # initialized to 0
         
         '''
@@ -879,8 +879,8 @@ class DiscriminativeTagger(object):
         
                 if update:
                     gamma_current *= gamma
-                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed, finalWeights, averagingTimestamps, learningRate=gamma_current)
-                    # will update currentWeights as well as running average in finalWeights
+                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current)
+                    # will update currentWeights as well as distance to running average in avgWeightDeltas
                     o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
                 for i in range(len(sent)):
@@ -904,11 +904,11 @@ class DiscriminativeTagger(object):
             
             
             if update:
-                if averaging:   # ensure all parameter averages are up to date
-                    for featIndex in range(nWeights):
-                        t0 = averagingTimestamps[featIndex]
-                        if t0<totalInstancesProcessed:
-                            finalWeights[featIndex] = (t0*finalWeights[featIndex] + (totalInstancesProcessed-t0)*currentWeights[featIndex])/totalInstancesProcessed
+                if averaging:   # compute the averages from the deltas
+                    print('averaging...', end='', file=sys.stderr)
+                    average_weights(finalWeights, currentWeights, avgWeightDeltas, totalInstancesProcessed+1)
+                    # average includes the initial (0) weight vector
+                    print('done', file=sys.stderr)
                 else:
                     finalWeights = currentWeights
             
