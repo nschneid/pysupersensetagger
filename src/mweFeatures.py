@@ -306,7 +306,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 clustid, keywords = wordClusterID(sent[k].token.lower())
                 ff['c_{:+1}'.format(k-j), clustid, keywords] = 1
                 if k!=j:
-                    ff['lemma_+0,c_{:+}'.format(k-j), sent[j].stem, clustid, keywords]
+                    ff['lemma_+0,c_{:+}'.format(k-j), sent[j].stem, clustid, keywords] = 1
         
         # - word + context POS
         # - POS + context word
