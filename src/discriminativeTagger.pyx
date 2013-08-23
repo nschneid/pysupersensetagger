@@ -727,7 +727,9 @@ class DiscriminativeTagger(object):
             print('---')
             assert c_score==i_score,(c_score,i_score)
 
-    def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, tuningData=None, earlyStopInterval=None, maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
+    def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, 
+              tuningData=None, earlyStopInterval=None, earlyStopDelay=0, 
+              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         assert maxIters>0,maxIters
         assert earlyStopInterval is None or tuningData is not None
@@ -746,10 +748,12 @@ class DiscriminativeTagger(object):
             with open(savePrefix+'.features', 'w') as outF:
                 self.printFeatures(outF)
         
-        prevNCorrect = prevTotCost = None
-        nTuning = None
+        # for best model achieved so far
+        prevNCorrect = -1
+        prevTotCost = float('inf')
+        prevBestIter = prevWeights = None
         
-        prevWeights = None
+        nTuning = None
         
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
@@ -774,30 +778,29 @@ class DiscriminativeTagger(object):
                       useBIO=useBIO, includeLossTerm=False, costAugVal=0.0))
                 totCost = nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
-                    # TODO: evaluate cost rather than tag accuracy?
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
                     totCost += sum(1+(costAugVal if tok.gold=='O' else 0) for tok in sent if tok.gold!=tok.prediction)
                     nTuning += len(sent)
                 if prevNCorrect is not None:
-                    if earlyStopInterval>0 and nCorrect <= prevNCorrect: # use accuracy as criterion
-                        print('stopping early after iteration',i,
-                              '. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
-                                                                                                  prevNCorrect,nTuning,prevNCorrect/nTuning),
-                              file=sys.stderr)
-                        self._weights = prevWeights # the last model that posted an improvement
-                        break
-                    elif earlyStopInterval<0 and totCost >= prevTotCost:   # use cost as criterion
-                        print('stopping early after iteration',i,
-                              '. new tuning set avg cost {}/{}={:.2%}, previously {}/{}={:.2%}'.format(totCost,nTuning,totCost/nTuning,
-                                                                                                       prevTotCost,nTuning,prevTotCost/nTuning),
-                              file=sys.stderr)
-                        self._weights = prevWeights # the last model that posted an improvement
-                        break
-                prevNCorrect = nCorrect
-                prevTotCost = totCost
+                    # use accuracy or cost as criterion
+                    isImproved = (nCorrect > prevNCorrect) if earlyStopInterval>0 else (totCost < prevTotCost)
+                    
+                    if isImproved:
+                        prevNCorrect = nCorrect
+                        prevTotCost = totCost
+                        prevBestIter = i
+                        # hold on to the previous weights
+                        prevWeights = self._weights.copy()
+                    else:
+                        if i-prevBestIter-1>earlyStopDelay:
+                            print('stopping early after iteration',i,'; using model from iteration',prevBestIter,
+                                  'instead. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
+                                                                                                      prevNCorrect,nTuning,prevNCorrect/nTuning),
+                                  file=sys.stderr)
+                            self._weights = prevWeights # the last model that posted an improvement
+                            break                
                 
-            # hold on to the previous weights
-            prevWeights = self._weights.copy()
+            
         
         # save model
         if savePrefix is not None:
@@ -836,10 +839,12 @@ class DiscriminativeTagger(object):
         # the model to decode with. if learning with averaging, contains the latest non-averaged weight vector. 
         # otherwise same as finalWeights.
         currentWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        currentWeights[:] = 0
         # the model to be written to disk. will be yielded after each iteration. includes averaging if applicable.
         finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
         avgWeightDeltas = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        avgWeightDeltas[:] = 0
         # initialized to 0
         
         '''
@@ -978,6 +983,7 @@ def main():
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
     flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early. If negative, cost rather than tagging accuracy is used as the stopping criterion.", ftype=int, default=None)
+    flag("early-stop-delay", "Number of extra iterations (epochs) to wait after the model has failed to improve before stopping and using the previous best model.", ftype=int, default=0)
     inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
     #flag("max-test-instances", "During testing, truncate the data to the specified number of instances", ftype=int)
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
@@ -1058,6 +1064,7 @@ def main():
                 
             t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
+                    earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
                     tuningData=testData,
                     developmentMode=args.debug, 
                     useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma)
