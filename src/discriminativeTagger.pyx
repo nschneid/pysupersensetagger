@@ -792,7 +792,7 @@ class DiscriminativeTagger(object):
                         # hold on to the previous weights
                         prevWeights = self._weights.copy()
                     else:
-                        if i-prevBestIter-1>earlyStopDelay:
+                        if i-prevBestIter>earlyStopDelay:
                             print('stopping early after iteration',i,'; using model from iteration',prevBestIter,
                                   'instead. new tuning set acc {}/{}={:.2%}, previously {}/{}={:.2%}'.format(nCorrect,nTuning,nCorrect/nTuning,
                                                                                                       prevNCorrect,nTuning,prevNCorrect/nTuning),
