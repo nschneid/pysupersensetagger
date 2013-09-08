@@ -34,6 +34,10 @@ def registerOpts(program_args):
         mwe_lexicons.load_lexicons(program_args.clist, is_list=True)
     if program_args.clusters:
         loadClusters(program_args.cluster_file)
+    global useTokenBigrams, useWNOOV, useWNCompound
+    useTokenBigrams = not program_args.no_bigrams
+    useWNOOV = not program_args.no_oov
+    useWNCompound = not program_args.no_compound
 
 def loadClusters(clusterFile, oldClusterFormat=False):
     global clusterMap
@@ -300,7 +304,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                  or (sent[j].pos[0]=='V' and sent[k].pos[0] in {'V','N','J','I','R','T'})):
                     ff['lemma_+0,{:+}'.format(k-j), sent[j].stem, sent[k].stem] = 1
             if k<j+2 and k<len(sent)-1:
-                ff['w_{:+},{:+}'.format(k-j,k-j+1), sent[k].token.lower(), sent[k+1].token.lower()] = 1
+                if useTokenBigrams: ff['w_{:+},{:+}'.format(k-j,k-j+1), sent[k].token.lower(), sent[k+1].token.lower()] = 1
                 ff['pos_{:+},{:+}'.format(k-j,k-j+1), sent[k].pos, sent[k+1].pos] = 1
             if clusterMap and (k==j or abs(k-j)==1): # current and neighbor clusters
                 clustid, keywords = wordClusterID(sent[k].token.lower())
@@ -321,38 +325,38 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         # lexicon features
         
         if not wn.lemmas(sent[j].stem):
-            ff['OOV',sent[j].pos] = 1
+            if useWNOOV: ff['OOV',sent[j].pos] = 1
             wn_pos_setS = '{}'
         else:
             wn_pos_set = frozenset({lem.synset.pos.replace('s','a') for lem in wn.lemmas(sent[j].stem)})
             wn_pos_setS = '{'+repr(tuple(wn_pos_set))[1:-1]+'}'
         
-        
-        # - compound
-        if sent[j].pos.isalnum():
-            prevtok = None
-            for tok in sent[j-1::-1]:
-                if tok.pos=='HYPH':
-                    continue
-                elif tok.pos.isalnum():
-                    prevtok = tok
-                break
-            nexttok = None
-            for tok in sent[j+1:]:
-                if tok.pos=='HYPH':
-                    continue
-                elif tok.pos.isalnum():
-                    nexttok = tok
-                break
-            
-            if sent[j].pos=='HYPH':
-                if isCompound(prevtok,nexttok):
-                    ff['compound_left_right'] = 1
-            else:
-                if isCompound(prevtok,sent[j]):
-                    ff['compound_left'] = 1
-                if isCompound(sent[j],nexttok):
-                    ff['compound_right'] = 1
+        if useWNCompound:
+            # - compound
+            if sent[j].pos.isalnum():
+                prevtok = None
+                for tok in sent[j-1::-1]:
+                    if tok.pos=='HYPH':
+                        continue
+                    elif tok.pos.isalnum():
+                        prevtok = tok
+                    break
+                nexttok = None
+                for tok in sent[j+1:]:
+                    if tok.pos=='HYPH':
+                        continue
+                    elif tok.pos.isalnum():
+                        nexttok = tok
+                    break
+                
+                if sent[j].pos=='HYPH':
+                    if isCompound(prevtok,nexttok):
+                        ff['compound_left_right'] = 1
+                else:
+                    if isCompound(prevtok,sent[j]):
+                        ff['compound_left'] = 1
+                    if isCompound(sent[j],nexttok):
+                        ff['compound_right'] = 1
         
         
         nMatches = Counter()
@@ -376,7 +380,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
                 if not lbl.startswith('NE:') and SENSENUM.search(lbl):
                     lbl = '<sense-tagged>'
                 ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl] = 1
-                if entry["datasource"].lower()!='wikimwe':
+                if True or entry["datasource"].lower()!='wikimwe':   # TODO: OK to remove constraint for wikimwe?
                     p1 = sent[expr_tokens[0]].pos
                     p2 = sent[expr_tokens[-1]].pos
                     ff['lex',lexiconname,tag.upper(),str(is_gappy_expr),lbl,p1,'...',p2] = 1

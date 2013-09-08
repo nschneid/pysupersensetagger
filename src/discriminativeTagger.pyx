@@ -150,7 +150,7 @@ cdef c_viterbi(sent, o0Feats, float[:] weights,
                 if label!=sent[i].gold:
                     if includeLossTerm:
                         score0 += 1.0   # base cost of any error
-                    if label=='O' and sent[i].gold=='B':
+                    if (label=='O' or label=='o') and (sent[i].gold=='B' or sent[i].gold=='b'):
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
                 if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
@@ -297,7 +297,7 @@ cdef i_viterbi(sent, o0Feats, float[:] weights,
                                 if label!=sent[i].gold:
                                     if includeLossTerm:
                                         score0 += 1.0   # base cost of any error
-                                    if label=='O' and sent[i].gold=='B':
+                                    if (label=='O' or label=='o') and (sent[i].gold=='B' or sent[i].gold=='b'):
                                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                                 
                             o0Scores[i,l2] = score0
@@ -779,7 +779,7 @@ class DiscriminativeTagger(object):
                 totCost = nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
-                    totCost += sum(1+(costAugVal if tok.gold=='O' else 0) for tok in sent if tok.gold!=tok.prediction)
+                    totCost += sum(1+(costAugVal if (tok.gold=='O' or tok.gold=='o') else 0) for tok in sent if tok.gold!=tok.prediction)
                     nTuning += len(sent)
                 if prevNCorrect is not None:
                     # use accuracy or cost as criterion
@@ -866,7 +866,8 @@ class DiscriminativeTagger(object):
         totalWordsIncorrect = 0
         totalInstancesProcessed = 0
         
-        gamma_current = 1.0   # current learning rate
+        #gamma_current = 1.0   # current learning rate
+        gamma_current = gamma
         
         for numIters in range(max(1,maxTrainIters)):
             if update:
@@ -883,7 +884,7 @@ class DiscriminativeTagger(object):
                               useBIO=useBIO)
         
                 if update:
-                    gamma_current *= gamma
+                    #gamma_current *= gamma    # keep learning rate/instance weight fixed for now
                     nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current)
                     # will update currentWeights as well as distance to running average in avgWeightDeltas
                     o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
@@ -1007,13 +1008,16 @@ def main():
     # formerly: "useFeatureNumber"
     flag("excludeFeatures","Comma-separated list of (0-based) column numbers to ignore when reading feature files. (Do not specify column 0; use --no-lex instead.)", default='')
     flag("cutoff", "Threshold (minimum number of occurrences) of a feature for it to be included in the model", ftype=int, default=None)
-    flag("gamma","Base of learning rate (exponent is number of instances seen so far)", ftype=float, default=1.0)
+    #flag("gamma","Base of learning rate (exponent is number of instances seen so far)", ftype=float, default=1.0)
+    flag("gamma","Instance weight/constant learning rate", ftype=float, default=1.0)
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
     # features
     boolflag("mwe", "Multiword expressions featureset")
-    boolflag("bigrams", "Token bigram features")
+    boolflag("no-bigrams", "Disable token bigram features", default=False)
+    boolflag("no-oov", "Disable WordNet unigram OOV features.", default=False)
+    boolflag("no-compound", "Disable WordNet compound features; redundant if --no-wordnet is specified", default=False)
     boolflag("cxt-pos-filter", "Filter bigram features based on the POS pairs")
     boolflag("clusters", "Word cluster features")
     flag("cluster-file", "Path to file with word clusters", default=supersenseFeatureExtractor._options['clusterFile'])
