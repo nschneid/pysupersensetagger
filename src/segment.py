@@ -17,9 +17,9 @@ from dataFeaturizer import SupersenseDataSet
 
 from pyutil.corpus import mwe_lexicons
 
-def segment(sent):
+def segment(sent, max_gap_length):
     sentence_lemmas = [t.stem for t in sent]
-    path, tags, tokinfo = mwe_lexicons._lexicons['all'].shortest_path_decoding(sentence_lemmas, max_gap_length=2)
+    path, tags, tokinfo = mwe_lexicons._lexicons['all'].shortest_path_decoding(sentence_lemmas, max_gap_length=max_gap_length)
     return tokinfo
     #for toffset,tag,expr_tokens,is_gappy_expr,entry in tokinfo:
     #    print(tag)
@@ -42,13 +42,14 @@ def main():
     flag("data", "Path to training data feature file")  #inflag
     boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
     inflag("lex", "Lexicons to load for lookup features", nargs='*')
+    flag("max-gap-length", "Maximum number of tokens within a gap", default=2)
     
     args = opts.parse_args()
     
     mwe_lexicons.load_combined_lexicon('all', args.lex)
     
     for sent in SupersenseDataSet(args.data, list('OoBbIiĪīĨĩ'.decode('utf-8')), legacy0=False):
-        for tok,tokinfo in zip(sent,segment(sent)):
+        for tok,tokinfo in zip(sent,segment(sent, max_gap_length=args.max_gap_length)):
             gold = tok.gold.replace('ī'.decode('utf-8'),'i') \
                            .replace('ĩ'.decode('utf-8'),'i') \
                            .replace('Ī'.decode('utf-8'),'I') \
