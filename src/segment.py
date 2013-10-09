@@ -42,7 +42,7 @@ def main():
     flag("data", "Path to training data feature file")  #inflag
     boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
     inflag("lex", "Lexicons to load for lookup features", nargs='*')
-    flag("max-gap-length", "Maximum number of tokens within a gap", type=int, default=2)
+    flag("max-gap-length", "Maximum number of tokens within a gap", ftype=int, default=2)
     
     args = opts.parse_args()
     
