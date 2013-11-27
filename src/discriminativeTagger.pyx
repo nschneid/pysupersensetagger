@@ -757,7 +757,7 @@ class DiscriminativeTagger(object):
         
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
-                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal)):
+                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma)):
             
             # store the new weights in an attribute
             self._weights = weights
