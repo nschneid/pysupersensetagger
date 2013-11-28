@@ -551,7 +551,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0):
+    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0, sumsqgrads=None):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -581,11 +581,28 @@ class DiscriminativeTagger(object):
             
             # update gold label feature weights
             
+            # FOR NOW, we assume no features are shared between classes.
+            # Otherwise we may have to ensure the learner isn't penalizing features that 
+            # should fire for both the gold and predicted classes.
+            
+            '''
+            AdaGrad update chooses a different step size for each parameter.
+            Green et al. 2013, eqs. (4) and (5):
+            With respect to a single parameter (component) j:
+                g_t = gradient w.r.t. j of the loss under the current weight vector
+                G_t = G_{t-1} + math.pow(g_t, 2)    # i.e., G_t is the sum of squared gradients for this feature until now
+                w_t = w_{t-1} - η * math.pow(G_t, -0.5) * g_t
+            We fix η = 1.
+            '''
+            
             # zero-order features
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, gold, self._featureIndexes)
                 updates.add(featIndex)
+                if sumsqgrads:
+                    sumsqgrads[featIndex] += v*v
+                    learningRate = sumsqgrads[featIndex]**(-0.5)
                 currentWeights[featIndex] += learningRate * v
                 avgWeightDeltas[featIndex] += timestep * learningRate * v
                 
@@ -595,6 +612,9 @@ class DiscriminativeTagger(object):
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, gold, self._featureIndexes)
                     updates.add(featIndex)
+                    if sumsqgrads:
+                        sumsqgrads[featIndex] += v*v
+                        learningRate = sumsqgrads[featIndex]**(-0.5)
                     currentWeights[featIndex] += learningRate * v
                     avgWeightDeltas[featIndex] += timestep * learningRate * v
             
@@ -609,6 +629,9 @@ class DiscriminativeTagger(object):
             for h,v in o0FeatureMap.items():
                 featIndex = _ground(h, pred, self._featureIndexes)
                 updates.add(featIndex)
+                if sumsqgrads:
+                    sumsqgrads[featIndex] += v*v
+                    learningRate = sumsqgrads[featIndex]**(-0.5)
                 currentWeights[featIndex] -= learningRate * v
                 avgWeightDeltas[featIndex] -= timestep * learningRate * v
                 
@@ -618,6 +641,9 @@ class DiscriminativeTagger(object):
                 for h,v in o1FeatureMap.items():
                     featIndex = _ground(h, pred, self._featureIndexes)
                     updates.add(featIndex)
+                    if sumsqgrads:
+                        sumsqgrads[featIndex] += v*v
+                        learningRate = sumsqgrads[featIndex]**(-0.5)
                     currentWeights[featIndex] -= learningRate * v
                     avgWeightDeltas[featIndex] -= timestep * learningRate * v
             
@@ -729,14 +755,18 @@ class DiscriminativeTagger(object):
 
     def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, 
               tuningData=None, earlyStopInterval=None, earlyStopDelay=0, 
-              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
+              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, gammaUpdate=None and 'adagrad'):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         assert maxIters>0,maxIters
         assert earlyStopInterval is None or tuningData is not None
         print('training with the perceptron for up to',maxIters,'iterations', 
               ('with early stopping by checking the tuning data every {} iterations'.format(abs(earlyStopInterval)) if earlyStopInterval is not None else ''),
               file=sys.stderr)
-        
+        if gamma!=1.0:
+            print('gamma (step size) =',gamma, file=sys.stderr)
+        if gammaUpdate:
+            print('gammaUpdate:',gammaUpdate, file=sys.stderr)
+            assert gammaUpdate=='adagrad' 
         # create feature vocabulary for the training data
         assert trainingData
         self._createFeatures(trainingData, sentIndices=instanceIndices)
@@ -755,9 +785,11 @@ class DiscriminativeTagger(object):
         
         nTuning = None
         
+        sumsqgrads = [] if gammaUpdate=='adagrad' else None
+        
         # training iterations: calls decode()
         for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
-                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma)):
+                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma, sumsqgrads=sumsqgrads)):
             
             # store the new weights in an attribute
             self._weights = weights
@@ -770,7 +802,6 @@ class DiscriminativeTagger(object):
                     self.saveModel(savePrefix+'.'+str(i))
                     with open(savePrefix+'.'+str(i)+'.weights', 'w') as outF:
                         self.printWeights(outF, weights)
-                        
             
             if earlyStopInterval is not None and i<maxIters-1 and (i+1)%abs(earlyStopInterval)==0:
                 # decode on tuning data and decide whether to stop
@@ -807,7 +838,7 @@ class DiscriminativeTagger(object):
             self.saveModel(savePrefix)
         
     
-    def decode(self, data, maxTrainIters=0, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0):
+    def decode(self, data, maxTrainIters=0, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None):
         '''Decode a dataset under a model. Predictions are stored in the sentence within the call to _viterbi(). 
         If maxTrainIters is positive, update the weights. 
         After each iteration, the weights are yielded.'''
@@ -819,6 +850,9 @@ class DiscriminativeTagger(object):
         nLabels = len(self._labels) # number of (actual) labels
         nDegenerateLabels = int(math.ceil(math.log(nLabels,2)))  # for iterative Viterbi
         nWeights = len(self._labels)*len(self._featureIndexes)
+        
+        if not sumsqgrads and sumsqgrads is not None:
+            sumsqgrads.extend([0.0 for j in range(nWeights)])
         
         # create DP tables
         #dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
@@ -885,7 +919,7 @@ class DiscriminativeTagger(object):
         
                 if update:
                     #gamma_current *= gamma    # keep learning rate/instance weight fixed for now
-                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current)
+                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
                     # will update currentWeights as well as distance to running average in avgWeightDeltas
                     o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
@@ -920,7 +954,9 @@ class DiscriminativeTagger(object):
             
             print('l2(currentWeights) = {:.4}, l2(finalWeights) = {:.4}'.format(l2norm(currentWeights), l2norm(finalWeights)), file=sys.stderr)
             print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
-                
+            
+            #assert False    # TODO: debug
+            
             yield finalWeights
             
             if update:
@@ -1010,6 +1046,7 @@ def main():
     flag("cutoff", "Threshold (minimum number of occurrences) of a feature for it to be included in the model", ftype=int, default=None)
     #flag("gamma","Base of learning rate (exponent is number of instances seen so far)", ftype=float, default=1.0)
     flag("gamma","Instance weight/constant learning rate", ftype=float, default=1.0)
+    boolflag("adagrad","Adaptive gradient method (learning rate update)")
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
@@ -1071,7 +1108,7 @@ def main():
                     earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
                     tuningData=testData,
                     developmentMode=args.debug, 
-                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma)
+                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None)
             
             del trainingData
         else:
