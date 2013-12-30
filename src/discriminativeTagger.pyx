@@ -725,33 +725,59 @@ class DiscriminativeTagger(object):
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
-    def _viterbi(self, sent, o0Feats, float[:] weights, float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, 
-                 int[:, :] dpBackPointers, float[:, :] o0Scores, float[:, :, :] o1FeatWeights, 
+    def _viterbi(self, nLabels, float[:] weights, 
                  includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
-        nTokens = len(sent)
+        # setup
+        MAX_NUM_TOKENS = 200
+        o0Scores = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        dpValuesFwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
+        dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
         
-        # expand the size of dynamic programming tables if necessary
-        if len(dpValuesFwd)<nTokens:
-            #dpValues = [[0.0]*len(self._labels) for t in range(int(nTokens*1.5))]
-            #dpBackPointers = [[0]*len(self._labels) for t in range(int(nTokens*1.5))]
-            dpValuesFwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
-            dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
-            dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
-            o0Scores = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+        nDegenerateLabels = int(math.ceil(math.log(nLabels,2)))  # for iterative Viterbi
+        o1FeatWeights = cvarray(shape=(2, nLabels+nDegenerateLabels, nLabels+nDegenerateLabels), itemsize=sizeof(float), format='f')
+        o1FeatWeights[:,:,:] = float('inf')    # INF = uninitialized. note that the contents do not depend on the sentence.
         
-        METHOD = 'c'   # conventional and/or iterative Viterbi
-        if 'c' in METHOD:
-            c_score = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-            c_preds = [x.prediction for x in sent]
-        if 'i' in METHOD:
-            i_score = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
-            i_preds = [x.prediction for x in sent]
-        if 'c' in METHOD and 'i' in METHOD: # check that results match
-            print(c_score,c_preds)
-            print(i_score,i_preds)
-            print('---')
-            assert c_score==i_score,(c_score,i_score)
+        
+        ##########################
+        # for each instance
+        
+        instance = (yield o1FeatWeights) # pass back o1FeatWeights and receive first instance from send()
+        
+        while True:
+            
+            sent,o0Feats = instance
+            
+            nTokens = len(sent)
+            
+            
+            # expand the size of dynamic programming tables if necessary
+            if dpValuesFwd.shape[0]<nTokens:
+                #dpValues = [[0.0]*len(self._labels) for t in range(int(nTokens*1.5))]
+                #dpBackPointers = [[0]*len(self._labels) for t in range(int(nTokens*1.5))]
+                dpValuesFwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+                dpValuesBwd = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+                dpBackPointers = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(int), format='i')
+                o0Scores = cvarray(shape=(int(nTokens*1.5), len(self._labels)), itemsize=sizeof(float), format='f')
+            
+            METHOD = 'c'   # conventional and/or iterative Viterbi
+            if 'c' in METHOD:
+                c_score = c_viterbi(sent, o0Feats, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                c_preds = [x.prediction for x in sent]
+            if 'i' in METHOD:
+                i_score = i_viterbi(sent, o0Feats, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                i_preds = [x.prediction for x in sent]
+            if 'c' in METHOD and 'i' in METHOD: # check that results match
+                print(c_score,c_preds)
+                print(i_score,i_preds)
+                print('---')
+                assert c_score==i_score,(c_score,i_score)
+            
+            # yield back the instance, which now contains predictions, and receive the next instance
+            instance = (yield instance)
+        
+        # no tear-down necessary
 
     def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, 
               tuningData=None, earlyStopInterval=None, earlyStopDelay=0, 
@@ -788,7 +814,7 @@ class DiscriminativeTagger(object):
         sumsqgrads = [] if gammaUpdate=='adagrad' else None
         
         # training iterations: calls decode()
-        for i,weights in enumerate(self.decode(trainingData, maxTrainIters=maxIters, averaging=averaging, 
+        for i,weights in enumerate(self.learn(trainingData, maxTrainIters=maxIters, averaging=averaging, 
                                                useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma, sumsqgrads=sumsqgrads)):
             
             # store the new weights in an attribute
@@ -805,8 +831,9 @@ class DiscriminativeTagger(object):
             
             if earlyStopInterval is not None and i<maxIters-1 and (i+1)%abs(earlyStopInterval)==0:
                 # decode on tuning data and decide whether to stop
-                next(self.decode(tuningData, maxTrainIters=0, averaging=averaging,
-                      useBIO=useBIO, includeLossTerm=False, costAugVal=0.0))
+                self.decode_dataset(tuningData, print_predictions=False, currentWeights=self._weights, 
+                                    useBIO=useBIO, includeLossTerm=False, costAugVal=0.0)
+                
                 totCost = nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
@@ -836,9 +863,9 @@ class DiscriminativeTagger(object):
         # save model
         if savePrefix is not None:
             self.saveModel(savePrefix)
-        
     
-    def decode(self, data, maxTrainIters=0, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None):
+    
+    def learn(self, data, maxTrainIters, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None):
         '''Decode a dataset under a model. Predictions are stored in the sentence within the call to _viterbi(). 
         If maxTrainIters is positive, update the weights. 
         After each iteration, the weights are yielded.'''
@@ -846,26 +873,15 @@ class DiscriminativeTagger(object):
         print('decoding data type:', type(data), file=sys.stderr)
         print('learning:',bool(maxTrainIters),'averaging:',averaging,'BIO:',useBIO,'costAug:',includeLossTerm,costAugVal, file=sys.stderr)
         
-        MAX_NUM_TOKENS = 200
+        
         nLabels = len(self._labels) # number of (actual) labels
-        nDegenerateLabels = int(math.ceil(math.log(nLabels,2)))  # for iterative Viterbi
         nWeights = len(self._labels)*len(self._featureIndexes)
         
-        if not sumsqgrads and sumsqgrads is not None:
+        if not sumsqgrads and sumsqgrads is not None:   # for AdaGrad
             sumsqgrads.extend([0.0 for j in range(nWeights)])
         
-        # create DP tables
-        #dpValues = [[0.0]*nLabels for t in range(MAX_NUM_TOKENS)];
-        #dpBackPointers = [[0]*nLabels for t in range(MAX_NUM_TOKENS)]
         
-        dpValuesFwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
-        dpValuesBwd = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
-        dpBackPointers = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(int), format='i')
-        o0Scores = cvarray(shape=(MAX_NUM_TOKENS, nLabels), itemsize=sizeof(float), format='f')
-        o1FeatWeights = cvarray(shape=(2, nLabels+nDegenerateLabels, nLabels+nDegenerateLabels), itemsize=sizeof(float), format='f')
-        o1FeatWeights[:,:,:] = float('inf')    # INF = uninitialized. note that the contents do not depend on the sentence.
-        
-        update = (maxTrainIters>0)   # training?
+        assert maxTrainIters>0
         
         #finalWeights = [0.0]*nWeights
         #currentWeights = [0.0]*nWeights
@@ -882,9 +898,8 @@ class DiscriminativeTagger(object):
         # initialized to 0
         
         '''
-        if update:
-            yield finalWeights  # TODO: debugging: don't train at all!
-            return
+        yield finalWeights  # TODO: debugging: don't train at all!
+        return
         '''
         
         if self._weights is not None:  # initialize weights
@@ -893,6 +908,74 @@ class DiscriminativeTagger(object):
                 finalWeights[i] = currentWeights[i] = w
         
         
+        totalInstancesProcessed = 0
+        
+        #gamma_current = 1.0   # current learning rate
+        gamma_current = gamma
+        
+        decoder = self.decode(nLabels, currentWeights, 
+                              includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
+                              useBIO=useBIO)    # per-sentence decoder (persists across iterations)
+        
+        o1FeatWeights = decoder.next()
+        
+        for numIters in range(max(1,maxTrainIters)):
+            print('iter = ',numIters, file=sys.stderr)
+            
+            # TODO: shuffle the training data if not reading it incrementally?
+            
+            nWeightUpdates = 0
+            
+            for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
+                sent,o0Feats = decoder.send((sent,o0Feats))    # Viterbi decode this instance
+                
+                #gamma_current *= gamma    # keep learning rate/instance weight fixed for now
+                nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
+                # will update currentWeights as well as distance to running average in avgWeightDeltas
+                o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
+                
+                totalInstancesProcessed += 1
+            
+            decoder.next()  # end of a pass--tell the decoder to print summary statistics
+            
+            if averaging:   # compute the averages from the deltas
+                print('averaging...', end='', file=sys.stderr)
+                average_weights(finalWeights, currentWeights, avgWeightDeltas, totalInstancesProcessed+1)
+                # average includes the initial (0) weight vector
+                print('done', file=sys.stderr)
+            else:
+                finalWeights = currentWeights
+            
+            print('l2(currentWeights) = {:.4}, l2(finalWeights) = {:.4}'.format(l2norm(currentWeights), l2norm(finalWeights)), file=sys.stderr)
+            
+            #assert False    # TODO: debug
+            
+            yield finalWeights
+            
+            print('weight updates this iteration:',nWeightUpdates, file=sys.stderr)
+            if nWeightUpdates==0:
+                print('converged! stopped training', file=sys.stderr)
+                break
+
+        # really just a formality, I think
+        decoder.close()
+        
+    def decode(self, nLabels, currentWeights, includeLossTerm, costAugVal, useBIO):
+        '''
+        Coroutine that decodes an instance (by calling _viterbi()), maintaining 
+        summary statistics over all instances decoded and printing them periodically 
+        to stderr.
+        
+        First next(): yields o1FeatWeights
+        Thereafter until closed:
+         - if sent None (a.k.a. next()), concludes that a pass through the data has been 
+           completed and prints summary statistics
+         - otherwise, treats the sent object as an instance, decodes it and yields it back 
+           (now including predictions)
+        '''
+        
+        # setup
+
         # tabulate accuracy at every 500 iterations
         nWordsProcessed = 0
         nWordsIncorrect = 0
@@ -900,28 +983,26 @@ class DiscriminativeTagger(object):
         totalWordsIncorrect = 0
         totalInstancesProcessed = 0
         
-        #gamma_current = 1.0   # current learning rate
-        gamma_current = gamma
+        firstInPass = True
         
-        for numIters in range(max(1,maxTrainIters)):
-            if update:
-                print('iter = ',numIters, file=sys.stderr)
-            
-            # TODO: shuffle the training data if not reading it incrementally?
-            
-            nWeightUpdates = 0
-            
-            for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
-                
-                self._viterbi(sent, o0Feats, currentWeights, dpValuesFwd, dpValuesBwd, dpBackPointers,
-                              o0Scores, o1FeatWeights, includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
+        decoder = self._viterbi(nLabels, currentWeights, 
+                              includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
                               useBIO=useBIO)
         
-                if update:
-                    #gamma_current *= gamma    # keep learning rate/instance weight fixed for now
-                    nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
-                    # will update currentWeights as well as distance to running average in avgWeightDeltas
-                    o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
+        o1FeatWeights = decoder.next()
+        
+        try:
+            instance = (yield o1FeatWeights)    # send back o1FeatWeights and receive the first instance
+            
+            while True:
+                if instance is None: # signal to print accuracy and reset firstInPass = True
+                    print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
+                    firstInPass = True
+                    instance = (yield)
+                    continue
+                
+                sent,o0Feats = instance
+                sent,o0Feats = decoder.send((sent,o0Feats))    # Viterbi decode this instance
                 
                 for i in range(len(sent)):
                     if sent[i].gold != sent[i].prediction:
@@ -930,10 +1011,11 @@ class DiscriminativeTagger(object):
                 nWordsProcessed += len(sent)
                 totalWordsProcessed += len(sent)
                 totalInstancesProcessed += 1
-                #print(',', end='', file=sys.stderr)
+                #print(',', end='', file=sys.stderr) # DEBUG
                 
-                if isent==0:    # print the tagging of the first sentence in the dataset
+                if firstInPass: # print the tagging of the first sentence in the dataset
                     print(' '.join(tkn.prediction for tkn in sent).encode('utf-8'), file=sys.stderr)
+                    firstInPass = False
                 
                 if totalInstancesProcessed%100==0:
                     print('totalInstancesProcessed = ',totalInstancesProcessed, file=sys.stderr)
@@ -941,29 +1023,40 @@ class DiscriminativeTagger(object):
                     nWordsIncorrect = nWordsProcessed = 0
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
-            
-            
-            if update:
-                if averaging:   # compute the averages from the deltas
-                    print('averaging...', end='', file=sys.stderr)
-                    average_weights(finalWeights, currentWeights, avgWeightDeltas, totalInstancesProcessed+1)
-                    # average includes the initial (0) weight vector
-                    print('done', file=sys.stderr)
-                else:
-                    finalWeights = currentWeights
-            
-            print('l2(currentWeights) = {:.4}, l2(finalWeights) = {:.4}'.format(l2norm(currentWeights), l2norm(finalWeights)), file=sys.stderr)
-            print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
-            
-            #assert False    # TODO: debug
-            
-            yield finalWeights
-            
-            if update:
-                print('weight updates this iteration:',nWeightUpdates, file=sys.stderr)
-                if nWeightUpdates==0:
-                    print('converged! stopped training', file=sys.stderr)
-                    break
+                
+                
+                instance = (yield instance) # next instance
+                
+        except GeneratorExit:   # cleanup
+            # really just a formality, I think
+            decoder.close()
+
+
+    def decode_dataset(self, dataset, print_predictions, currentWeights, useBIO, includeLossTerm, costAugVal):
+        '''
+        Make a decoding pass through a dataset under the current model.
+        Not used for the training data: see learn()
+        '''
+        
+        nLabels = len(self._labels) # number of (actual) labels
+        
+        assert self._weights is not None  # model weights
+        
+        
+        decoder = self.decode(nLabels, self._weights,
+                              useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal)
+        decoder.next()
+        
+        for sent,o0Feats in dataset:
+            sent,o0Feats = decoder.send((sent,o0Feats))
+            if print_predictions:
+                # print predictions
+                for tok in sent:
+                    print(tok.token.encode('utf-8'), tok.prediction.encode('utf-8'), sep='\t')
+                print()
+                
+        decoder.next()  # show summary statistics
+        decoder.close() # a formality
 
     def printFeatures(self, out):
         print(len(self._featureIndexes),'lifted features x',len(self._labels),'labels =',len(self._featureIndexes)*len(self._labels),'grounded features', file=out)
@@ -988,6 +1081,12 @@ class DiscriminativeTagger(object):
         saveFP = savePrefix+'.pickle'
         with open(saveFP, 'rb') as saveF:
             model = cPickle.load(saveF)
+        # convert list of weights back to array
+        nWeights = len(model._weights)
+        weights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        for i,w in enumerate(model._weights):
+            weights[i] = w
+        model._weights = weights
         return model
         
     def test(self, weights):
@@ -1021,7 +1120,7 @@ def main():
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
     flag("early-stop", "Interval (number of iterations) between checks on the test data to decide whether to stop early. If negative, cost rather than tagging accuracy is used as the stopping criterion.", ftype=int, default=None)
     flag("early-stop-delay", "Number of extra iterations (epochs) to wait after the model has failed to improve before stopping and using the previous best model.", ftype=int, default=0)
-    inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable)")
+    inflag("test", "Path to test data for a CoNLL-style evaluation; scores will be printed to stderr (following training, if applicable). (Will be ignored if --test-predict is supplied.)")
     #flag("max-test-instances", "During testing, truncate the data to the specified number of instances", ftype=int)
     boolflag("debug", "Whether to save the list of feature names (.features file) prior to training, as well as an intermediate model (serialized model file and text file with feature weights) after each iteration of training")
     inflag("YY", "List of possible labels, one label per line") # formerly: labels
@@ -1031,7 +1130,8 @@ def main():
     #inflag("properties", "Properties file with option defaults", default="tagger.properties")
     #boolflag("mira"),
     boolflag("weights", "Write feature weights to stdout after training")
-    flag("test-predict", "Path to feature file on which to make predictions (following training, if applicable); predictions will be written to stdout. (Will be ignored if --test is supplied.)")
+    flag("test-predict", "Path to test data for a CoNLL-style evaluation; predictions will be printed to stdout and scores will be printed to stderr (following training, if applicable). (Supersedes --test.)")
+    flag("predict", "Path to data on which to make predictions (following training, if applicable); predictions will be written to stdout (following --test-predict predictions, if both flags are specified). (The data need not have gold labels.)")
     #inflag
     
     # formerly only allowed in properties file
@@ -1078,7 +1178,9 @@ def main():
     
     featureExtractor.registerOpts(args)
     
-    testData = None
+    evalData = None
+    
+    # load or train a model
     
     if args.load is not None:
         print('loading model from',args.load,'...', file=sys.stderr)
@@ -1100,13 +1202,17 @@ def main():
         if not args.disk:
             #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
             trainingData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
-            if args.test is not None or args.test_predict is not None:
-                testData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            if args.test_predict is not None or args.test is not None:
+                # keep labeled test data in memory so it can be used for early stopping (tuning)
+                evalData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test_predict or args.test, 
+                                                                                    t._labels, legacy0=args.legacy0,
+                                                                                    keep_in_memory=True), 
+                                                t._featureIndexes, cache_features=False)
                 
             t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
                     earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
                     earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
-                    tuningData=testData,
+                    tuningData=evalData,
                     developmentMode=args.debug, 
                     useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None)
             
@@ -1115,21 +1221,35 @@ def main():
             raise NotImplemented()
     
     
-    if args.test is not None or args.test_predict is not None:
-        if testData is None:
-            testData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test or args.test_predict, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+    if args.test_predict is not None or args.test is not None:
+        # evaluate (test), and possibly print predictions for that data
         
-        next(t.decode(testData, maxTrainIters=0, averaging=(not args.no_averaging),
-                      useBIO=args.bio, includeLossTerm=False, costAugVal=0.0))
+        if evalData is None:
+            evalData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test_predict or args.test, 
+                                                                                t._labels, legacy0=args.legacy0,
+                                                                                keep_in_memory=True), 
+                                            t._featureIndexes, cache_features=False)
         
-        if not args.test:
-            # print predictions
-            for sent,o0Feats in testData:
-                for tok in sent:
-                    print(tok.token.encode('utf-8'), tok.prediction.encode('utf-8'), sep='\t')
-                print()
+        t.decode_dataset(evalData, print_predictions=(args.test_predict is not None), 
+                         useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
+        
+    if args.predict is not None:
+        # predict on a separate dataset
+        
+        predData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.predict, 
+                                                                            t._labels, legacy0=args.legacy0, 
+                                                                            require_gold=False,
+                                                                            keep_in_memory=False), 
+                                        t._featureIndexes, cache_features=False)
+
+        t.decode_dataset(predData, print_predictions=True, useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
+        
+        
+        
+        
+
     
-    elif args.weights:
+    elif args.test is None and args.weights:
         t.printWeights(sys.stdout)
     else:
         t.tagStandardInput()

@@ -22,11 +22,12 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, legacy0, keep_in_memory=True):
+    def __init__(self, path, labels, legacy0, require_gold=True, keep_in_memory=True):
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
         self._legacy0 = legacy0
+        self._require_gold = require_gold
         self.open_file()
     
     def close_file(self):
@@ -72,17 +73,25 @@ class SupersenseDataSet(DataSet):
                         sent = LabeledSentence()
                     continue
                 parts = ln[:-1].split('\t')
+                
                 if len(parts)>3:
                     if parts[3]!='':
                         sent.articleId = parts[3]
                     parts = parts[:3]
-                token, pos, label = parts
-                if label=='0' and self._legacy0:
-                    assert 'O' in self._labels,self._labels
-                    label = 'O'
-                elif label not in self._labels:
-                    label = 'O'
-                label = uintern(unicode(label))
+                if not self._require_gold:
+                    token, pos = parts[:2]
+                    label = parts[2] if len(parts)>2 and parts[2].strip() else None
+                else:
+                    token, pos, label = parts
+                
+                if label is not None:
+                    if label=='0' and self._legacy0:
+                        assert 'O' in self._labels,self._labels
+                        label = 'O'
+                    elif label not in self._labels:
+                        label = 'O'
+                    label = uintern(unicode(label))
+                    
                 pos = uintern(unicode(pos))
                 stemS = uintern(unicode(morph.stem(token,pos)))
                 sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
