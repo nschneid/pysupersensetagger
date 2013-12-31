@@ -831,7 +831,7 @@ class DiscriminativeTagger(object):
             
             if earlyStopInterval is not None and i<maxIters-1 and (i+1)%abs(earlyStopInterval)==0:
                 # decode on tuning data and decide whether to stop
-                self.decode_dataset(tuningData, print_predictions=False, currentWeights=self._weights, 
+                self.decode_dataset(tuningData, print_predictions=False, 
                                     useBIO=useBIO, includeLossTerm=False, costAugVal=0.0)
                 
                 totCost = nCorrect = nTuning = 0
@@ -1032,7 +1032,7 @@ class DiscriminativeTagger(object):
             decoder.close()
 
 
-    def decode_dataset(self, dataset, print_predictions, currentWeights, useBIO, includeLossTerm, costAugVal):
+    def decode_dataset(self, dataset, print_predictions, useBIO, includeLossTerm, costAugVal):
         '''
         Make a decoding pass through a dataset under the current model.
         Not used for the training data: see learn()
