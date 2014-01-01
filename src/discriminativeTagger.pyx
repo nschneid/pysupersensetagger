@@ -984,6 +984,7 @@ class DiscriminativeTagger(object):
         totalInstancesProcessed = 0
         
         firstInPass = True
+        reportAcc = True
         
         decoder = self._viterbi(nLabels, currentWeights, 
                               includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
@@ -1004,10 +1005,14 @@ class DiscriminativeTagger(object):
                 sent,o0Feats = instance
                 sent,o0Feats = decoder.send((sent,o0Feats))    # Viterbi decode this instance
                 
-                for i in range(len(sent)):
-                    if sent[i].gold != sent[i].prediction:
-                        nWordsIncorrect += 1
-                        totalWordsIncorrect += 1
+                if reportAcc:
+                    for i in range(len(sent)):
+                        if sent[i].gold is None:
+                            reportAcc = False
+                            break
+                        if sent[i].gold != sent[i].prediction:
+                            nWordsIncorrect += 1
+                            totalWordsIncorrect += 1
                 nWordsProcessed += len(sent)
                 totalWordsProcessed += len(sent)
                 totalInstancesProcessed += 1
@@ -1019,7 +1024,8 @@ class DiscriminativeTagger(object):
                 
                 if totalInstancesProcessed%100==0:
                     print('totalInstancesProcessed = ',totalInstancesProcessed, file=sys.stderr)
-                    print('pct. correct words in last 100 inst.: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
+                    if reportAcc:
+                        print('word accuracy in last 100 instances: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
                     nWordsIncorrect = nWordsProcessed = 0
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
