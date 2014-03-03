@@ -93,7 +93,7 @@ class MaxPlus(SemiringValue):
         #print('*', list(left), list(right), file=sys.stderr)
         weights, bps, indices, tags = zip(left, right)
         right_indices = indices[1]
-        return MaxPlus((sum(weights), left, filter(lambda x: x!=(), right_indices), sum(tags, [])))
+        return MaxPlus((sum(weights), left, filter(lambda x: x!=(), right_indices), tags[1]))
 
 def o_singleton_score(i): return MaxPlus((3,None,[(i-1,i,'S')],[(i-1,'O')]))
 # word that is not part of any MWE and is not inside a gap
@@ -157,7 +157,7 @@ def build_chart(N, path):
     
     path[0] = MaxPlus()
     for i in range(1, N+1):
-        #print(path[i-1], sys.stderr)
+        #print(path[i-1].v, sys.stderr)
         v = ZERO + path[i-1] * o_singleton_score(i)
         for j in range(0, i-1):
             v += path[j] * ngpath(j,i) ** weak_contig_score(j,i)
