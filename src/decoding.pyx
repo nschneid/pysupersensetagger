@@ -173,11 +173,15 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
         assert maxIndex>=0
         
         # now proceed backwards, following backpointers
+        derivation = []
         for i in range(nTokens)[::-1]:
             sent[i] = sent[i]._replace(prediction=labels[maxIndex])
             maxIndex = dpBackPointers[i,maxIndex]
-            
-        return maxScore
+            if hasFOF and i>0:
+                derivation.insert(0, ((i-1,i), {featureIndexes[('prevLabel=',labels[maxIndex])]: 1}))
+            derivation.insert(0, ((i,), o0Feats[i]))
+        
+        return maxScore, derivation
 
 
 cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 

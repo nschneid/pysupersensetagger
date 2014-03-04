@@ -144,7 +144,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, o0Feats, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0, sumsqgrads=None):
+    def _perceptronUpdate(self, sent, goldDerivation, predDerivation, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0, sumsqgrads=None):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -166,11 +166,13 @@ class DiscriminativeTagger(object):
         
         cdef int featIndex
         
-        for i,(tkn,o0FeatureMap) in enumerate(zip(sent, o0Feats)):
-            pred = self._labels.index(tkn.prediction)
-            gold = self._labels.index(tkn.gold)
+        for indices,factorFeats in goldDerivation:
             
-            if pred==gold: continue # TODO: is this correct if we are being cost-augmented?
+            if not any(sent[i].prediction!=sent[i].gold for i in indices): continue
+            # is this correct if we are being cost-augmented?
+            # yes, so long as the decoder used the cost properly to determine the prediction
+            
+            goldLabel = self._labels.index(sent[indices[-1]].gold) if len(self._labels)>1 else 0
             
             # update gold label feature weights
             
@@ -188,59 +190,39 @@ class DiscriminativeTagger(object):
             We fix η = 1.
             '''
             
-            # zero-order features
-            #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={0}, indexer=self._featureIndexes)
-            for h,v in o0FeatureMap.items():
-                featIndex = _ground(h, gold, self._featureIndexes)
+            for h,v in factorFeats.items():
+                featIndex = _ground(h, goldLabel, self._featureIndexes)
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
                     learningRate = sumsqgrads[featIndex]**(-0.5)
                 currentWeights[featIndex] += learningRate * v
                 avgWeightDeltas[featIndex] += timestep * learningRate * v
-                
-            # first-order features
-            if featureExtractor.hasFirstOrderFeatures() and i>0:
-                o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=False, orders={1}, indexer=self._featureIndexes)
-                for h,v in o1FeatureMap.items():
-                    featIndex = _ground(h, gold, self._featureIndexes)
-                    updates.add(featIndex)
-                    if sumsqgrads:
-                        sumsqgrads[featIndex] += v*v
-                        learningRate = sumsqgrads[featIndex]**(-0.5)
-                    currentWeights[featIndex] += learningRate * v
-                    avgWeightDeltas[featIndex] += timestep * learningRate * v
             
-            if not o0FeatureMap and not o1FeatureMap:
+            if not factorFeats:
                 raise Exception('No features found for this token')
         
             
+        for indices,factorFeats in predDerivation:
+            
+            if not any(sent[i].prediction!=sent[i].gold for i in indices): continue
+            # is this correct if we are being cost-augmented?
+            # yes, so long as the decoder used the cost properly to determine the prediction
+            
+            predLabel = self._labels.index(sent[indices[-1]].prediction) if len(self._labels)>1 else 0
+            
             # update predicted label feature weights
             
-            # zero-order features
-            #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
-            for h,v in o0FeatureMap.items():
-                featIndex = _ground(h, pred, self._featureIndexes)
+            for h,v in factorFeats.items():
+                featIndex = _ground(h, predLabel, self._featureIndexes)
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
                     learningRate = sumsqgrads[featIndex]**(-0.5)
                 currentWeights[featIndex] -= learningRate * v
                 avgWeightDeltas[featIndex] -= timestep * learningRate * v
-                
-            # first-order features
-            if featureExtractor.hasFirstOrderFeatures() and i>0:
-                o1FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={1}, indexer=self._featureIndexes)
-                for h,v in o1FeatureMap.items():
-                    featIndex = _ground(h, pred, self._featureIndexes)
-                    updates.add(featIndex)
-                    if sumsqgrads:
-                        sumsqgrads[featIndex] += v*v
-                        learningRate = sumsqgrads[featIndex]**(-0.5)
-                    currentWeights[featIndex] -= learningRate * v
-                    avgWeightDeltas[featIndex] -= timestep * learningRate * v
             
-            if not o0FeatureMap and not o1FeatureMap:
+            if not factorFeats:
                 raise Exception('No features found for this token')
         
         return len(updates)
@@ -356,7 +338,7 @@ class DiscriminativeTagger(object):
             
             METHOD = 'c'   # conventional and/or iterative Viterbi
             if 'c' in METHOD:
-                c_score = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
                 c_preds = [x.prediction for x in sent]
             if 'i' in METHOD:
                 i_score = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
@@ -368,7 +350,7 @@ class DiscriminativeTagger(object):
                 assert c_score==i_score,(c_score,i_score)
             
             # yield back the instance, which now contains predictions, and receive the next instance
-            instance = (yield instance)
+            instance = (yield (sent, derivation))
         
         # no tear-down necessary
 
@@ -520,10 +502,17 @@ class DiscriminativeTagger(object):
             nWeightUpdates = 0
             
             for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
-                sent,o0Feats = decoder.send((sent,o0Feats))    # Viterbi decode this instance
-                
+                sent,predDerivation = decoder.send((sent,o0Feats))    # Viterbi decode this instance
+                goldDerivation = [((i,), o0Feats[i]) for i in range(len(sent))]
+                if featureExtractor.hasFirstOrderFeatures():
+                    goldDerivation.extend([((i-1,i), {self._featureIndexes['prevLabel=',sent[i-1].gold]: 1}) for i in range(1,len(sent))])
+                #print(sent, file=sys.stderr)
+                #print(o0Feats, file=sys.stderr)
+                #print(predDerivation, file=sys.stderr)
+                #print(goldDerivation, file=sys.stderr)
+                #assert False
                 #gamma_current *= gamma    # keep learning rate/instance weight fixed for now
-                nWeightUpdates += self._perceptronUpdate(sent, o0Feats, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
+                nWeightUpdates += self._perceptronUpdate(sent, goldDerivation, predDerivation, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
                 # will update currentWeights as well as distance to running average in avgWeightDeltas
                 o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
                 
@@ -564,7 +553,7 @@ class DiscriminativeTagger(object):
          - if sent None (a.k.a. next()), concludes that a pass through the data has been 
            completed and prints summary statistics
          - otherwise, treats the sent object as an instance, decodes it and yields it back 
-           (now including predictions)
+           (now including predictions & derivation)
         '''
         
         # setup
@@ -596,7 +585,7 @@ class DiscriminativeTagger(object):
                     continue
                 
                 sent,o0Feats = instance
-                sent,o0Feats = decoder.send((sent,o0Feats))    # Viterbi decode this instance
+                sent,derivation = decoder.send((sent,o0Feats))    # Viterbi decode this instance
                 
                 if reportAcc:
                     for i in range(len(sent)):
@@ -624,7 +613,7 @@ class DiscriminativeTagger(object):
                     print('.', file=sys.stderr, end='')
                 
                 
-                instance = (yield instance) # next instance
+                instance = (yield (sent, derivation)) # next instance
                 
         except GeneratorExit:   # cleanup
             # really just a formality, I think
@@ -647,7 +636,7 @@ class DiscriminativeTagger(object):
         decoder.next()
         
         for sent,o0Feats in dataset:
-            sent,o0Feats = decoder.send((sent,o0Feats))
+            sent,derivation = decoder.send((sent,o0Feats))
             if print_predictions:
                 # print predictions
                 for tok in sent:
