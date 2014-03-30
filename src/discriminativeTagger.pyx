@@ -79,41 +79,6 @@ class DiscriminativeTagger(object):
         #}*/
         return label if label in labels else 'O'
     
-    @staticmethod
-    def loadSuperSenseData(path, labels):
-        '''
-        Load the BIO tagged supersense data from Semcor, as provided in 
-        the SuperSenseTagger release (SEM_07.BI).
-        We also use their POS labels, which presumably were what their 
-        paper used.
-        One difference is that this method expects the data to be converted 
-        into a 3-column format with an extra newline between each sentence 
-        (as in CoNLL data), which can be created from the SST data with 
-        a short perl script. 
-        '''
-        res = []
-        with codecs.open(path, 'r', 'utf-8') as inF:
-            sent = LabeledSentence()
-            for ln in inF:
-                if not ln.strip():
-                    if len(sent)>0:
-                        res.append(sent)
-                        sent = LabeledSentence()
-                    continue
-                parts = ln[:-1].split('\t')
-                if len(parts)>3:
-                    if parts[3]!='':
-                        sent.sentId = parts[3]
-                    parts = parts[:3]
-                token, pos, label = parts
-                label = DiscriminativeTagger.removeExtraLabels(label, labels)
-                stemS = morph.stem(token,pos)
-                sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
-                
-            if len(sent)>0:
-                res.append(sent)
-        
-        return res
     
     def printWeights(self, out, weights=None):
         if weights is None:
@@ -787,7 +752,6 @@ def main():
         print('training model from',args.train,'...', file=sys.stderr)
         
         if not args.disk:
-            #data = DiscriminativeTagger.loadSuperSenseData(args.train, labels)
             trainingData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
             if args.test_predict is not None or args.test is not None:
                 # keep labeled test data in memory so it can be used for early stopping (tuning)
