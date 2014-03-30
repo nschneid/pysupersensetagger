@@ -145,7 +145,8 @@ class SupersenseTrainSet(SupersenseDataSet):
         pos = uintern(unicode(pos))
         stemS = uintern(unicode(morph.stem(token,pos)))
         sent.addToken(token=token, stem=stemS, pos=pos, goldTag=tag, 
-                      goldparent=int(parent), goldstrength=strength, goldlabel=label)
+                      goldparent=int(parent), goldstrength=uintern(unicode(strength)), 
+                      goldlabel=uintern(unicode(label)))
 
 
 
