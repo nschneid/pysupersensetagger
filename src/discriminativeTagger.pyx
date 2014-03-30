@@ -21,7 +21,7 @@ import supersenseFeatureExtractor
 featureExtractor = None
 
 
-from dataFeaturizer import SupersenseDataSet, SupersenseFeaturizer
+from dataFeaturizer import SupersenseDataSet, SupersenseTrainSet, SupersenseFeaturizer
 
 from decoding cimport _ground0, _ground, c_viterbi, i_viterbi
 
@@ -752,10 +752,10 @@ def main():
         print('training model from',args.train,'...', file=sys.stderr)
         
         if not args.disk:
-            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
             if args.test_predict is not None or args.test is not None:
                 # keep labeled test data in memory so it can be used for early stopping (tuning)
-                evalData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test_predict or args.test, 
+                evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                     t._labels, legacy0=args.legacy0,
                                                                                     keep_in_memory=True), 
                                                 t._featureIndexes, cache_features=False)
@@ -776,7 +776,7 @@ def main():
         # evaluate (test), and possibly print predictions for that data
         
         if evalData is None:
-            evalData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.test_predict or args.test, 
+            evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                 t._labels, legacy0=args.legacy0,
                                                                                 keep_in_memory=True), 
                                             t._featureIndexes, cache_features=False)
@@ -789,7 +789,6 @@ def main():
         
         predData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.predict, 
                                                                             t._labels, legacy0=args.legacy0, 
-                                                                            require_gold=False,
                                                                             keep_in_memory=False), 
                                         t._featureIndexes, cache_features=False)
 

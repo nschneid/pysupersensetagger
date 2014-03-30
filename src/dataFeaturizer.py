@@ -22,12 +22,11 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, legacy0, require_gold=True, keep_in_memory=True):
+    def __init__(self, path, labels, legacy0, keep_in_memory=True):
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
         self._legacy0 = legacy0
-        self._require_gold = require_gold
         self.open_file()
     
     def close_file(self):
@@ -43,6 +42,36 @@ class SupersenseDataSet(DataSet):
         else:
             self.close_file()
         self._reset = True  # TODO: not sure about this mechanism for short-circuiting existing iterators
+    
+    def _read_nonblank_line(self, ln, sent):
+        '''Tab-separated format:
+        word   pos   tag   sentId
+        tag and sentId are optional.
+        '''
+        parts = ln[:-1].split('\t')[:4]
+        if len(parts)==4:
+            token, pos, tag, sentId = parts
+            sent.sentId = sentId
+        elif len(parts)==3:
+            token, pos, tag = parts
+            if not tag.strip():
+                tag = None
+        else:
+            token, pos = parts
+            tag = None
+        
+        
+        if tag is not None:
+            if tag=='0' and self._legacy0:
+                assert 'O' in self._labels,self._labels
+                tag = 'O'
+            elif tag not in self._labels:
+                tag = 'O'
+            tag = uintern(unicode(tag))
+            
+        pos = uintern(unicode(pos))
+        stemS = uintern(unicode(morph.stem(token,pos)))
+        sent.addToken(token=token, stem=stemS, pos=pos, goldTag=tag)
     
     def __iter__(self, autoreset=True):
         '''
@@ -72,29 +101,8 @@ class SupersenseDataSet(DataSet):
                             raise StopIteration()
                         sent = LabeledSentence()
                     continue
-                parts = ln[:-1].split('\t')
                 
-                if len(parts)>3:
-                    if parts[3]!='':
-                        sent.sentId = parts[3]
-                    parts = parts[:3]
-                if not self._require_gold:
-                    token, pos = parts[:2]
-                    label = parts[2] if len(parts)>2 and parts[2].strip() else None
-                else:
-                    token, pos, label = parts
-                
-                if label is not None:
-                    if label=='0' and self._legacy0:
-                        assert 'O' in self._labels,self._labels
-                        label = 'O'
-                    elif label not in self._labels:
-                        label = 'O'
-                    label = uintern(unicode(label))
-                    
-                pos = uintern(unicode(pos))
-                stemS = uintern(unicode(morph.stem(token,pos)))
-                sent.addToken(token=token, stem=stemS, pos=pos, goldLabel=label)
+                self._read_nonblank_line(ln, sent)
                 
             if len(sent)>0:
                 if self._cache is not None:
@@ -103,6 +111,42 @@ class SupersenseDataSet(DataSet):
                 
             if autoreset:
                 self.reset()
+
+class SupersenseTrainSet(SupersenseDataSet):
+    '''Dataset in 8- or 9-column format with gold tags''' 
+    
+    def _read_nonblank_line(self, ln, sent):
+        '''Tab-separated format:
+        offset   word   lemma   POS   tag   parent   strength   label   sentId
+        lemma will (for now) be ignored in favor of the automatic stemmer.
+        label may be the empty string; sentId is optional.
+        '''
+        parts = ln[:-1].split('\t')
+        if len(parts)==9:
+            offset, token, _, pos, tag, parent, strength, label, sentId = parts
+            sent.sentId = sentId
+        else:
+            offset, token, _, pos, tag, parent, strength, label = parts
+        
+        offset = int(offset)
+        parent = int(parent)
+        assert len(sent)+1==offset
+        assert parent<offset
+        
+        
+        if tag is not None:
+            if tag=='0' and self._legacy0:
+                assert 'O' in self._labels,self._labels
+                tag = 'O'
+            elif tag not in self._labels:
+                tag = 'O'
+            tag = uintern(unicode(tag))
+            
+        pos = uintern(unicode(pos))
+        stemS = uintern(unicode(morph.stem(token,pos)))
+        sent.addToken(token=token, stem=stemS, pos=pos, goldTag=tag, 
+                      goldparent=int(parent), goldstrength=strength, goldlabel=label)
+
 
 
 class SupersenseFeaturizer(object):

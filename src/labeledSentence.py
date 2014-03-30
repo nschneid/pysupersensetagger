@@ -56,8 +56,11 @@ class LabeledSentence(list):
         self._mostFrequentSenses = None
         self._sentId = ''
     
-    def addToken(self, token, stem, pos, goldLabel):
-        self.append(Token(token, stem, pos, goldLabel, "", wordShape(token)))
+    def addToken(self, token, stem, pos, goldTag, **kwargs):
+        tok = Token(token, stem, pos, goldTag, "", wordShape(token))
+        for k,v in kwargs.items():
+            setattr(tok, k, v)
+        self.append(tok)
         self._mostFrequentSenses = None
     
     def predictionsAreCorrect(self):
