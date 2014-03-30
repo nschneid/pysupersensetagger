@@ -103,7 +103,7 @@ class DiscriminativeTagger(object):
                 parts = ln[:-1].split('\t')
                 if len(parts)>3:
                     if parts[3]!='':
-                        sent.articleId = parts[3]
+                        sent.sentId = parts[3]
                     parts = parts[:3]
                 token, pos, label = parts
                 label = DiscriminativeTagger.removeExtraLabels(label, labels)
@@ -639,8 +639,7 @@ class DiscriminativeTagger(object):
             sent,derivation = decoder.send((sent,o0Feats))
             if print_predictions:
                 # print predictions
-                for tok in sent:
-                    print(tok.token.encode('utf-8'), tok.prediction.encode('utf-8'), sep='\t')
+                print(sent)
                 print()
                 
         decoder.next()  # show summary statistics

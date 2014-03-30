@@ -76,7 +76,7 @@ class SupersenseDataSet(DataSet):
                 
                 if len(parts)>3:
                     if parts[3]!='':
-                        sent.articleId = parts[3]
+                        sent.sentId = parts[3]
                     parts = parts[:3]
                 if not self._require_gold:
                     token, pos = parts[:2]

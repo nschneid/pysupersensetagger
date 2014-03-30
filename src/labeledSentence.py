@@ -33,20 +33,23 @@ def wordShape(tkn):
         
     return shape
 
-Token = namedtuple('Token', 'token stem pos gold prediction shape')
+_Token = namedtuple('Token', 'token stem pos gold prediction shape')
+class Token(_Token):
+    goldparent = goldstrength = goldlabel = ''
+    predparent = predstrength = predlabel = ''
 
 class LabeledSentence(list):
     '''
     Stores information about the tokens in a sequence. For each token 
     position is a tuple of the form 
       (token, stem, POS, goldLabel, predictedLabel, wordShape)
-    Properties 'articleId' and 'mostFrequentSenses' may be kept 
+    Properties 'sentId' and 'mostFrequentSenses' may be kept 
     as well.
     '''
     def __init__(self):
         list.__init__(self)
         self._mostFrequentSenses = None
-        self._articleId = ''
+        self._sentId = ''
     
     def addToken(self, token, stem, pos, goldLabel):
         self.append(Token(token, stem, pos, goldLabel, "", wordShape(token)))
@@ -56,11 +59,11 @@ class LabeledSentence(list):
         return all(x.gold == x.prediction for x in self)
     
     @property
-    def articleId(self):
-        return self._articleId
-    @articleId.setter
-    def articleId(self, val):
-        self._articleId = val
+    def sentId(self):
+        return self._sentId
+    @sentId.setter
+    def sentId(self, val):
+        self._sentId = val
 
     @property
     def mostFrequentSenses(self):
@@ -70,5 +73,7 @@ class LabeledSentence(list):
         self._mostFrequentSenses = val
 
     def __str__(self):
-        return '\n'.join('{0.token}\t{0.pos}\t{0.prediction}'.format(tok) for tok in self)
+        '''offset   word   lemma   POS   tag   parent   strength   label   sentID'''
+        return '\n'.join(u'{offset}\t{0.token}\t{0.stem}\t{0.pos}\t{0.prediction}\t{0.predparent}\t{0.predstrength}\t{0.predlabel}\t{sentId}'.format(tok,offset=i+1,sentId=self.sentId) 
+                         for i,tok in enumerate(self)).encode('utf-8')
     
