@@ -1,10 +1,15 @@
+#coding=utf-8
 '''
-Ported from Michael Heilman's LabeledSentence.java
+Data structure for a sentence and its tokens, including 
+metadata such as stems and gold/predicted tags.
+Partially ported from Michael Heilman's LabeledSentence.java
 @author: Nathan Schneider (nschneid)
 @since: 2012-07-23
 '''
 from __future__ import print_function, division
 from collections import namedtuple
+
+I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
 
 def wordShape(tkn):
     '''Word shape feature described by Ciaramita & Altun 2006'''
@@ -57,6 +62,51 @@ class LabeledSentence(list):
     
     def predictionsAreCorrect(self):
         return all(x.gold == x.prediction for x in self)
+    
+    def updatedPredictions(self):
+        '''Called once every token has a value for .prediction; 
+           sets .predstrength, .predlabel, and .predparent accordingly. 
+           Note that .predparent is 0 if no parent and a positive offset otherwise.'''
+        curOuterMWE = None
+        curInnerMWE = None
+        for i,tok in enumerate(self):
+            if '-' in tok.prediction:
+                predPosition = tok.prediction[:tok.prediction.index('-')]
+                predLbl = tok.prediction[tok.prediction.index('-')+1:]
+            else:
+                predPosition = tok.prediction
+                predLbl = ''
+            
+            tok.predlabel = predLbl
+            if predPosition in {'B',I_BAR,I_TILDE}:
+                if predPosition=='B':
+                    assert curInnerMWE is None
+                    tok.predparent = 0
+                else:
+                    assert curOuterMWE is not None
+                    tok.predparent = curOuterMWE
+                    tok.predstrength = '_' if predPosition==I_BAR else '~'
+                curOuterMWE = i+1
+                curInnerMWE = None
+            elif predPosition in {'b',i_BAR,i_TILDE}:
+                assert curOuterMWE is not None
+                if predPosition=='b':
+                    tok.predparent = 0
+                else:
+                    assert curInnerMWE is not None
+                    tok.predparent = curInnerMWE
+                    tok.predstrength = '_' if predPosition==i_BAR else '~'
+                curInnerMWE = i+1
+            elif predPosition=='o':
+                assert curOuterMWE is not None
+                tok.predparent = 0
+                curInnerMWE = None
+            else:
+                assert predPosition=='O'
+                assert curInnerMWE is None
+                tok.predparent = 0
+                curOuterMWE = None
+        assert curInnerMWE is None
     
     @property
     def sentId(self):

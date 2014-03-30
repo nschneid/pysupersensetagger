@@ -180,6 +180,7 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             if hasFOF and i>0:
                 derivation.insert(0, ((i-1,i), {featureIndexes[('prevLabel=',labels[maxIndex])]: 1}))
             derivation.insert(0, ((i,), o0Feats[i]))
+        sent.updatedPredictions()
         
         return maxScore, derivation
 
