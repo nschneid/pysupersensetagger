@@ -102,6 +102,8 @@ class SupersenseDataSet(DataSet):
                         if self._reset:
                             raise StopIteration()
                         sent = LabeledSentence()
+                    if not ln:  # end of input
+                        break
                     continue
                 
                 self._read_nonblank_line(ln, sent)
