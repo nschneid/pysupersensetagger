@@ -34,7 +34,7 @@ class SupersenseDataSet(DataSet):
         self._f.close()
     
     def open_file(self):
-        self._f = codecs.open(self._path, 'r', 'utf-8')
+        self._f = open(self._path)  # using codecs.open() was screwing up line buffering
     
     def reset(self):
         '''Stop reading more input instances, and prepare to start at the beginning.'''
@@ -93,7 +93,7 @@ class SupersenseDataSet(DataSet):
         else:
             sent = LabeledSentence()
             while True:                 # instead of for loop, due to buffering issue
-                ln = self._f.readline() # with stdin (this will ensure one line is processed at a time)
+                ln = self._f.readline().decode('utf-8') # with stdin (this will ensure one line is processed at a time)
                 if not ln.strip():
                     if len(sent)>0:
                         if self._cache is not None:
