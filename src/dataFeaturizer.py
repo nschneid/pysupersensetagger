@@ -22,11 +22,12 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, legacy0, keep_in_memory=True):
+    def __init__(self, path, labels, legacy0, keep_in_memory=True, autoreset=True):
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
         self._legacy0 = legacy0
+        self._autoreset = autoreset
         self.open_file()
     
     def close_file(self):
@@ -73,7 +74,7 @@ class SupersenseDataSet(DataSet):
         stemS = uintern(unicode(morph.stem(token,pos)))
         sent.addToken(token=token, stem=stemS, pos=pos, goldTag=tag)
     
-    def __iter__(self, autoreset=True):
+    def __iter__(self):
         '''
         Load the BIO tagged supersense data from Semcor, as provided in 
         the SuperSenseTagger release (SEM_07.BI).
@@ -91,7 +92,8 @@ class SupersenseDataSet(DataSet):
                 yield sent
         else:
             sent = LabeledSentence()
-            for ln in self._f:
+            while True:                 # instead of for loop, due to buffering issue
+                ln = self._f.readline() # with stdin (this will ensure one line is processed at a time)
                 if not ln.strip():
                     if len(sent)>0:
                         if self._cache is not None:
@@ -109,7 +111,7 @@ class SupersenseDataSet(DataSet):
                     self._cache.append(sent)
                 yield sent
                 
-            if autoreset:
+            if self._autoreset:
                 self.reset()
 
 class SupersenseTrainSet(SupersenseDataSet):

@@ -789,7 +789,8 @@ def main():
         
         predData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.predict, 
                                                                             t._labels, legacy0=args.legacy0, 
-                                                                            keep_in_memory=False), 
+                                                                            keep_in_memory=False,
+                                                                            autoreset=False),   # could be stdin, which should never be reset 
                                         t._featureIndexes, cache_features=False)
 
         t.decode_dataset(predData, print_predictions=True, useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
