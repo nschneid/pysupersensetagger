@@ -81,24 +81,24 @@ class LabeledSentence(list):
                 predLbl = ''
             
             tok.predlabel = predLbl
-            if predPosition in {'B',I_BAR,I_TILDE}:
+            if predPosition in {'B','I',I_BAR,I_TILDE}:
                 if predPosition=='B':
                     assert curInnerMWE is None
                     tok.predparent = 0
                 else:
                     assert curOuterMWE is not None
                     tok.predparent = curOuterMWE
-                    tok.predstrength = '_' if predPosition==I_BAR else '~'
+                    tok.predstrength = '_' if predPosition==I_BAR else ('~' if predPosition==I_TILDE else '')
                 curOuterMWE = i+1
                 curInnerMWE = None
-            elif predPosition in {'b',i_BAR,i_TILDE}:
+            elif predPosition in {'b','i',i_BAR,i_TILDE}:
                 assert curOuterMWE is not None
                 if predPosition=='b':
                     tok.predparent = 0
                 else:
                     assert curInnerMWE is not None
                     tok.predparent = curInnerMWE
-                    tok.predstrength = '_' if predPosition==i_BAR else '~'
+                    tok.predstrength = '_' if predPosition==i_BAR else ('~' if predPosition==i_TILDE else '')
                 curInnerMWE = i+1
             elif predPosition=='o':
                 assert curOuterMWE is not None
