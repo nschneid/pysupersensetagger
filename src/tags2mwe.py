@@ -119,14 +119,14 @@ def convert(inF, outF=sys.stdout):
         wgroups = []
         i2sgroup = {}
         i2wgroup = {}
-        for offset,(parent,strength) in parents.items():
+        for offset,(parent,strength) in sorted(parents.items()):
             if strength=='_':
                 if parent not in i2sgroup:
                     i2sgroup[parent] = len(sgroups)
                     sgroups.append([parent])
                 i2sgroup[offset] = i2sgroup[parent]
                 sgroups[i2sgroup[parent]].append(offset)
-        for offset,(parent,strength) in parents.items():
+        for offset,(parent,strength) in sorted(parents.items()):
             if strength=='~':   # includes transitive closure over all member strong groups
                 if parent not in i2wgroup:
                     i2wgroup[parent] = len(wgroups)
@@ -146,6 +146,10 @@ def convert(inF, outF=sys.stdout):
         
         # sanity check: number of tokens belonging to some MWE
         assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t.upper()!='O')
+        
+        # sanity check: no token shared by multiple strong or multiple weak groups
+        assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),sgroups
+        assert len(set(sum(wgroups,[])))==len(sum(wgroups,[])),wgroups
         
         data = {"words": words, "tags": tags, "_": sgroups, "~": wgroups}
         if any(lemmas):
