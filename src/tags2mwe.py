@@ -135,12 +135,16 @@ def convert(inF, outF=sys.stdout):
                 g = wgroups[i2wgroup[offset]]
                 
                 if parent in i2sgroup: # include strong group of parent
-                    g.extend(sgroups[i2sgroup[parent]])
+                    for o in sgroups[i2sgroup[parent]]:
+                        if o not in g:  # avoid redundancy if weak group has 3 parts
+                            g.append(o)
                 elif parent not in g:
                     g.append(parent)
                 
                 if offset in i2sgroup:  # include strong group of child
-                    g.extend(sgroups[i2sgroup[offset]])
+                    for o in sgroups[i2sgroup[offset]]:
+                        i2wgroup[o] = i2wgroup[offset]  # in case the last word in a strong expression precedes part of a weak expression
+                        g.append(o)
                 else:
                     g.append(offset)
         
@@ -148,8 +152,8 @@ def convert(inF, outF=sys.stdout):
         assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t.upper()!='O'),(tags,sgroups,wgroups)
         
         # sanity check: no token shared by multiple strong or multiple weak groups
-        assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),sgroups
-        assert len(set(sum(wgroups,[])))==len(sum(wgroups,[])),wgroups
+        assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),(sgroups,tags,sentId)
+        assert len(set(sum(wgroups,[])))==len(sum(wgroups,[])),(wgroups,tags,sentId)
         
         data = {"words": words, "tags": tags, "_": sgroups, "~": wgroups}
         if any(lemmas):
