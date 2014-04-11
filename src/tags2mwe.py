@@ -120,7 +120,7 @@ def convert(inF, outF=sys.stdout):
         i2sgroup = {}
         i2wgroup = {}
         for offset,(parent,strength) in sorted(parents.items()):
-            if strength=='_':
+            if strength in {'_',''}:
                 if parent not in i2sgroup:
                     i2sgroup[parent] = len(sgroups)
                     sgroups.append([parent])
@@ -145,7 +145,7 @@ def convert(inF, outF=sys.stdout):
                     g.append(offset)
         
         # sanity check: number of tokens belonging to some MWE
-        assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t.upper()!='O')
+        assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t.upper()!='O'),(tags,sgroups,wgroups)
         
         # sanity check: no token shared by multiple strong or multiple weak groups
         assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),sgroups
