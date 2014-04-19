@@ -1,0 +1,10 @@
+The src/pyutil subdirectory of this project is actually imported from another project
+(https://github.com/nschneid/pyutil) as a subtree. To contribute to the development of pyutil, 
+clone that repository directly. To import recent changes from the pyutil repository into 
+this project, use:
+
+$ git remote add -f pyutil git://github.com/nschneid/pyutil.git
+$ git pull -s subtree pyutil master
+
+https://help.github.com/articles/working-with-subtree-merge gives further details on 
+subtree merges in git.
