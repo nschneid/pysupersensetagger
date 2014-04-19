@@ -1,3 +1,0 @@
-[submodule "src/pyutil"]
-	path = src/pyutil
-	url = git://github.com/nschneid/pyutil.git
