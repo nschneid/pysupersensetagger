@@ -68,7 +68,7 @@ The necessary lexical semantic resources and software are linked from http://www
     Note that the system will be at a disadvantage if it was trained to leverage SAID but cannot access it.
 5. Check that the AMALGr main directory contains the directories and src/ and mwelex/ and the file mwe.model.pickle.
 6. *Required for learning with CMWE, not required for prediction*: Download and unzip the CMWE Corpus in the AMALGr main directory. If you have access to the English Web Treebank from LDC, follow the instructions in the CMWE package to complete the corpus.
-7. *Required to emulate the *TACL* experiments*: Download train.sentids and test.sentids into the AMALGr main directory.
+7. *Required to emulate the* TACL *experiments*: Download train.sentids and test.sentids into the AMALGr main directory.
 
 
 Prediction with a Pretrained Model
