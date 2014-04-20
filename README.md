@@ -90,7 +90,7 @@ A few example POS-tagged sentences are given in the file: example
 
 On the command line, call the `mwe_identify.sh` script with the name of the model and the path to the POS-tagged input file:
 
-    ./mwe_identify.sh mwe.model example
+    $ ./mwe_identify.sh mwe.model example
 
 This will create two output files: example.pred.tags and example.pred.mwe.
 
