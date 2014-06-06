@@ -25,7 +25,7 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
 I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
 
 @memoize
-def legalTagBigram(lbl1, lbl2, useBIO=False):
+def legalTagBigram(lbl1, lbl2, useBIO=False, requireClassMatch=False):
         '''
         For use in decoding. If useBIO is true, valid bigrams include
           B        I
@@ -33,10 +33,12 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
           I-class1 I-class1
           O        B-class1
           I-class1 O
-        and invalid bigrams include
+        the bigram
+          O        I
+        is always invalid, and with requireClassMatch=True,
+        additional invalid bigrams include
           B-class1 I-class2
           O        I-class2
-          O        I
           B        I-class2
         where 'class1' and 'class2' are names of chunk classes.
         If useBIO is false, no constraint is applied--all tag bigrams are 
@@ -59,10 +61,11 @@ def legalTagBigram(lbl1, lbl2, useBIO=False):
             elif lbl1[0]=='b' and useBIO=='NO_SINGLETON_B':
                 return False
             
-            if lbl2[0] not in {'o', 'b'} and (len(lbl1)>1)!=(len(lbl2)>1):
-                return False    # only allow I without class if previous tag has no class
-            if len(lbl2)>1 and lbl1[2:]!=lbl2[2:]:
-                return False    # disallow an I tag following a tag with a different class
+            if requireClassMatch:
+                if lbl2[0] not in {'o', 'b'} and (len(lbl1)>1)!=(len(lbl2)>1):
+                    return False    # only allow I without class if previous tag has no class
+                if len(lbl2)>1 and lbl1[2:]!=lbl2[2:]:
+                    return False    # disallow an I tag following a tag with a different class
         elif lbl2[0] in {'i', i_BAR, i_TILDE}:
             if lbl1 is None or lbl1[0] not in {'b', 'i', i_BAR, i_TILDE}:
                 return False
