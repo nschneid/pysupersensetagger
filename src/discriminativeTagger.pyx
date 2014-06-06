@@ -28,7 +28,47 @@ from decoding cimport _ground0, _ground, c_viterbi, i_viterbi
 # inline functions _ground0() and _ground() are duplicated in decoding.pyx
 
 
+class Weights(object):
+    def __init__(self, initial=None):
+        self._w = defaultdict(dict)
+        self._l0 = 0
+        self._l1 = 0
+        self._sql2 = 0
+        if initial: # copy constructor
+            for percept,d in initial._w:
+                self._w[percept] = dict(d)
+            self._l0 = initial._l0
+            self._l1 = initial._l1
+            self._sql2 = initial._sql2
+    
+    def p(self, percept):
+        return self._w[percept]
+    
+    def __getitem__(self, key):
+        percept, label = key
+        return self._w[percept].get(label,0.0)
+    
+    def __setitem__(self, key, value):
+        percept, label = key
+        if percept in self._w and label in self._w[percept]:
+            oldvalue = self._w[percept][label]
+            self._l1 -= abs(oldvalue)
+            self._sql2 -= oldvalue*oldvalue
+            if value==0.0:  # was nonzero, now 0
+                del self._w[percept][label]
+                self._l0 -= 1
+        elif value!=0.0:    # new nonzero param
+            self._w[percept][label] = value
+            self._l0 += 1
+        else:
+            return
+            
+        self._l1 += abs(value)
+        self._sql2 += value*value
+                
 
+
+'''
 cdef float l2norm(float[:] weights):
     cdef float t
     cdef int i
@@ -36,13 +76,19 @@ cdef float l2norm(float[:] weights):
     for i in range(weights.shape[0]):
         t += weights[i]*weights[i]
     return t**0.5
-
-cdef void average_weights(float[:] finalWeights, float[:] currentWeights, float[:] avgWeightDeltas, int timestep):
+'''
+def l2norm(weights): return weights._sql2**0.5
+"""
+cdef void average_weights(object finalWeights, object currentWeights, object avgWeightDeltas, int timestep):
     '''Final step of weight averaging. See Hal Daume's thesis, Figure 2.3.'''
     cdef int i  # feature index
     for i in range(finalWeights.shape[0]):
         finalWeights[i] = currentWeights[i] - avgWeightDeltas[i]/timestep
-
+"""
+def average_weights(finalWeights, currentWeights, avgWeightDeltas, timestep):
+    for percept in currentWeights._w:
+        for l in set(currentWeights._w[percept]) | set(avgWeightDeltas._w[percept]):
+            finalWeights[percept,l] = currentWeights[percept,l] - avgWeightDeltas[percept,l]/timestep
 
 class DiscriminativeTagger(object):
     def __init__(self, cutoff=None, defaultY=None):
@@ -91,9 +137,11 @@ class DiscriminativeTagger(object):
         for index,fname in sorted(self._featureIndexes.items(), key=lambda x: x[1]):
             baseline = 0.0
             if self._defaultY is not None:
-                baseline = weights[_ground0(index,d,indexerSize)]
+                ###baseline = weights[_ground0(index,d,indexerSize)]
+                baseline = weights[index,d]
             for i,label in enumerate(self._labels):
-                value = weights[_ground0(index,i,indexerSize)]
+                ###value = weights[_ground0(index,i,indexerSize)]
+                value = weights[index,i]
                 if value==0.0:
                     value = 0
                 if self._defaultY is not None:
@@ -109,7 +157,7 @@ class DiscriminativeTagger(object):
     def getGroundedFeatureIndex(self, liftedFeatureIndex, labelIndex):
         return liftedFeatureIndex + labelIndex*len(self._featureIndexes)
     
-    def _perceptronUpdate(self, sent, goldDerivation, predDerivation, float[:] currentWeights, timestep, avgWeightDeltas, learningRate=1.0, sumsqgrads=None):
+    def _perceptronUpdate(self, sent, goldDerivation, predDerivation, object currentWeights, timestep, avgWeightDeltas, learningRate=1.0, sumsqgrads=None):
         '''
         Update weights by iterating through the sequence, and at each token position 
         adding the feature vector for the correct label and subtracting the feature 
@@ -129,7 +177,7 @@ class DiscriminativeTagger(object):
         
         updates = set()    # indices of weights updated
         
-        cdef int featIndex
+        ###cdef int featIndex
         
         for indices,factorFeats in goldDerivation:
             
@@ -156,7 +204,8 @@ class DiscriminativeTagger(object):
             '''
             
             for h,v in factorFeats.items():
-                featIndex = _ground(h, goldLabel, self._featureIndexes)
+                ###featIndex = _ground(h, goldLabel, self._featureIndexes)
+                featIndex = (h,goldLabel)
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
@@ -179,7 +228,8 @@ class DiscriminativeTagger(object):
             # update predicted label feature weights
             
             for h,v in factorFeats.items():
-                featIndex = _ground(h, predLabel, self._featureIndexes)
+                ###featIndex = _ground(h, predLabel, self._featureIndexes)
+                featIndex = (h,predLabel)
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
@@ -265,7 +315,7 @@ class DiscriminativeTagger(object):
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
-    def _viterbi(self, nLabels, float[:] weights, 
+    def _viterbi(self, nLabels, weights, 
                  includeLossTerm=False, costAugVal=0.0, useBIO=False):
         
         # setup
@@ -429,13 +479,14 @@ class DiscriminativeTagger(object):
         
         # the model to decode with. if learning with averaging, contains the latest non-averaged weight vector. 
         # otherwise same as finalWeights.
-        currentWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
-        currentWeights[:] = 0
+        ###currentWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        ###currentWeights[:] = 0
         # the model to be written to disk. will be yielded after each iteration. includes averaging if applicable.
-        finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        ###finalWeights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
-        avgWeightDeltas = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
-        avgWeightDeltas[:] = 0
+        ###avgWeightDeltas = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
+        ###avgWeightDeltas[:] = 0
+        avgWeightDeltas = Weights()
         # initialized to 0
         
         '''
@@ -445,8 +496,13 @@ class DiscriminativeTagger(object):
         
         if self._weights is not None:  # initialize weights
             #assert len(self._weights)==nWeights    # can't len() an array?
-            for i,w in enumerate(self._weights):
-                finalWeights[i] = currentWeights[i] = w
+            ###for i,w in enumerate(self._weights):
+            ###    finalWeights[i] = currentWeights[i] = w
+            currentWeights = Weights(self._weights)
+            finalWeights = Weights(self._weights)
+        else:
+            currentWeights = Weights()
+            finalWeights = Weights()
         
         
         totalInstancesProcessed = 0
@@ -622,7 +678,7 @@ class DiscriminativeTagger(object):
         saveFP = savePrefix+'.pickle'
         # lists but not arrays can be pickled. so temporarily store a list.
         weights = self._weights
-        if not isinstance(self._weights, list):
+        if not isinstance(self._weights, (list,Weights)):
             self._weights = list(weights)
         with open(saveFP, 'wb') as saveF:
             cPickle.dump(self, saveF)

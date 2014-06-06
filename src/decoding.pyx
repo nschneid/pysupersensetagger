@@ -75,7 +75,7 @@ def legalTagBigram(lbl1, lbl2, useBIO=False, requireClassMatch=False):
                     return False
         return True
 
-cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 
+cdef c_viterbi(sent, o0Feats, featureExtractor, weights, 
               float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0, 
               labels, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
@@ -107,8 +107,10 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             # compute dot products by iterating over percepts, then updating all label scores (for memory locality)
             labelScores0[:] = 0
             for h,v in o0FeatureMap.items():
-                for l,label in enumerate(labels):
-                    labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
+                ###for l,label in enumerate(labels):
+                    ###labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
+                for l,wt in weights.p(h).items(): # only iterate over labels with nonzero weights for this percept
+                    labelScores0[l] += wt*v
             
             for l,label in enumerate(labels):
                 
@@ -162,7 +164,8 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
                             '''
                             # TODO: generalize this to allow other kinds of first-order features?
                             if k not in o1FeatWeights[l]:
-                                o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
+                                ###o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
+                                o1FeatWeights[l][k] = weights[featureIndexes[('prevLabel=',prevLabel)],l]
                             score += o1FeatWeights[l][k]
                             
                         # find the max of the combined score at the current position
