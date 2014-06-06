@@ -390,9 +390,9 @@ cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             if lower_bound < best_active:
                 lower_bound = best_active
             
-            
             # now proceed in the opposite direction, following backpointers
             reachedPrunedLabel = False
+            derivation = []
             for i in range(nTokens)[::-direc]:
                 if latticeColumnSize[i]<nLabels and backpointer==freqSortedLabelIndices[latticeColumnSize[i]]:    # best decoding uses a collapsed label at this position
                     # column-wise expansion
@@ -401,6 +401,9 @@ cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
                     iterate = True
                 else:   # best decoding uses an active label at this position
                     sent[i] = sent[i]._replace(prediction=labels[backpointer])
+                    if hasFOF and i>0:
+                        derivation.insert(0, ((i-1,i), {featureIndexes[('prevLabel=',labels[dpBackPointers[i,backpointer]])]: 1}))
+                    derivation.insert(0, ((i,), o0Feats[i]))
                 
                 if backpointer in pruned[i]:
                     reachedPrunedLabel = True
@@ -420,5 +423,6 @@ cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             firstiter = False
             nIters += 1
             
+        sent.updatedPredictions()
         '''assert upper_bound==best_active,(upper_bound,best_active)'''
-        return upper_bound
+        return upper_bound, derivation

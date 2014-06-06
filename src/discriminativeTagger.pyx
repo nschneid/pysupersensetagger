@@ -306,7 +306,7 @@ class DiscriminativeTagger(object):
                 c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
                 c_preds = [x.prediction for x in sent]
             if 'i' in METHOD:
-                i_score = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                i_score, derivation = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
                 i_preds = [x.prediction for x in sent]
             if 'c' in METHOD and 'i' in METHOD: # check that results match
                 print(c_score,c_preds)
