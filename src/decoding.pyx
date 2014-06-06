@@ -14,7 +14,7 @@ cdef float _score(object featureMap, float[:] weights, int labelIndex, int index
             return 0.0
         
         dotProduct = 0.0
-        for h,v in featureMap.items():
+        for h,v in featureMap.iteritems():
             dotProduct += weights[_ground0(h, labelIndex, indexerSize)]*v
         return dotProduct
 

@@ -261,7 +261,7 @@ class DiscriminativeTagger(object):
             return 0.0
         
         dotProduct = 0.0
-        for h,v in featureMap.items():
+        for h,v in featureMap.iteritems():
             dotProduct += weights[self.getGroundedFeatureIndex(h, labelIndex)]*v
         return dotProduct
     
