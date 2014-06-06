@@ -8,7 +8,7 @@ cdef inline int _ground(int liftedFeatureIndex, int labelIndex, object indexer):
     return _ground0(liftedFeatureIndex, labelIndex, len(indexer))
 
 cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 
-              float[:, :] dpValues, int[:, :] dpBackPointers, 
+              float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0, 
               labels, featureIndexes, 
               includeLossTerm=?, costAugVal=?, useBIO=?)
 

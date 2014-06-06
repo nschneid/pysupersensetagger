@@ -76,7 +76,7 @@ def legalTagBigram(lbl1, lbl2, useBIO=False, requireClassMatch=False):
         return True
 
 cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 
-              float[:, :] dpValues, int[:, :] dpBackPointers, 
+              float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0, 
               labels, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
         under the current weight vector. Updates the predicted labels in 'sent'. 
@@ -104,6 +104,12 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             #o0FeatureMap = featureExtractor.extractFeatureValues(sent, i, usePredictedLabels=True, orders={0}, indexer=self._featureIndexes)
             o0FeatureMap = o0Feats[i]
             
+            # compute dot products by iterating over percepts, then updating all label scores (for memory locality)
+            labelScores0[:] = 0
+            for h,v in o0FeatureMap.items():
+                for l,label in enumerate(labels):
+                    labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
+            
             for l,label in enumerate(labels):
                 
                 # initialize stuff
@@ -111,7 +117,8 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
                 maxIndex = -1
                 
                 # score for zero-order features
-                score0 = _score(o0FeatureMap, weights, l, indexerSize)
+                ###score0 = _score(o0FeatureMap, weights, l, indexerSize)
+                score0 = labelScores0[l]
                 
                 # cost-augmented decoding
                 if label!=sent[i].gold:

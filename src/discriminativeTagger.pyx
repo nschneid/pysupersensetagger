@@ -279,6 +279,7 @@ class DiscriminativeTagger(object):
         o1FeatWeights = cvarray(shape=(2, nLabels+nDegenerateLabels, nLabels+nDegenerateLabels), itemsize=sizeof(float), format='f')
         o1FeatWeights[:,:,:] = float('inf')    # INF = uninitialized. note that the contents do not depend on the sentence.
         
+        labelScores0 = cvarray(shape=(len(self._labels),), itemsize=sizeof(float), format='f')
         
         ##########################
         # for each instance
@@ -303,7 +304,7 @@ class DiscriminativeTagger(object):
             
             METHOD = 'c'   # conventional and/or iterative Viterbi
             if 'c' in METHOD:
-                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, labelScores0, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
                 c_preds = [x.prediction for x in sent]
             if 'i' in METHOD:
                 i_score, derivation = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
