@@ -7,6 +7,7 @@ Created on Jul 24, 2012
 '''
 from __future__ import print_function, division
 import sys, codecs, random, math
+from numbers import Number
 from collections import defaultdict, Counter
 
 cimport cython
@@ -264,9 +265,16 @@ class DiscriminativeTagger(object):
             We fix η = 1.
             '''
             
-            for h,v in factorFeats.items():
+            for h,vv in factorFeats.items():
                 ###featIndex = _ground(h, goldLabel, self._featureIndexes)
                 featIndex = (h,goldLabel)
+                '''
+                if not isinstance(vv,Number):
+                    print(self._labels[goldLabel], file=sys.stderr)
+                    print(vv, file=sys.stderr)
+                    print(vv(self._labels[goldLabel]), file=sys.stderr)
+                '''
+                v = vv(self._labels[goldLabel]) if not isinstance(vv,Number) else vv
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
@@ -288,9 +296,10 @@ class DiscriminativeTagger(object):
             
             # update predicted label feature weights
             
-            for h,v in factorFeats.items():
+            for h,vv in factorFeats.items():
                 ###featIndex = _ground(h, predLabel, self._featureIndexes)
                 featIndex = (h,predLabel)
+                v = vv(self._labels[predLabel]) if not isinstance(vv,Number) else vv
                 updates.add(featIndex)
                 if sumsqgrads:
                     sumsqgrads[featIndex] += v*v
@@ -845,7 +854,7 @@ def main():
     if args.mwe:
         import mweFeatures as featureExtractor
     else:
-        import supersenseFeatureExtractor as featureExtractor
+        import sstFeatures as featureExtractor
     
     featureExtractor.registerOpts(args)
     

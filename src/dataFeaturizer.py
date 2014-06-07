@@ -167,16 +167,17 @@ class SupersenseFeaturizer(object):
         for j,sent in enumerate(self._data):
             if self._features is None or j>=len(self._features):  # not yet in cache
                 lexiconCandidatesThisSent = self._extractor.extractLexiconCandidates(sent)
+                supersenseCandidatesThisSent = self._extractor.extractWNSupersenseCandidates(sent)
                 
                 o0FeatsEachToken = []
                 
                 for i in range(len(sent)):
                     # zero-order features (lifted)
                     o0FeatureMap = self._extractor.extractFeatureValues(sent, i, 
-                                                                                   usePredictedLabels=False, 
-                                                                                   orders={0}, 
-                                                                                   indexer=self._featureIndexes, 
-                                                                                   candidatesThisSentence=lexiconCandidatesThisSent)
+                                                                        usePredictedLabels=False, 
+                                                                        orders={0}, 
+                                                                        indexer=self._featureIndexes, 
+                                                                        candidatesThisSentence=(lexiconCandidatesThisSent,supersenseCandidatesThisSent))
                     
                     if not o0FeatureMap:
                         raise Exception('No 0-order features found for this token')

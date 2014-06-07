@@ -1,8 +1,12 @@
 '''
-Ported from Michael Heilman's SuperSenseFeatureExtractor.java
-(parts refactored into the 'morph' module).
+Feature extraction routines for joint supersense tagging + MWE identification.
+Adds a few new features to the TACL 2014 MWE model (mweFeatures.py), 
+most notably consulting a supersense lexicon derived from WordNet.
+For an old feature extractor that reimplemented those of Ciaramita & Altun (2006)'s 
+supersense tagger, see supersenseFeatureExtractor.py.
+
 @author: Nathan Schneider (nschneid)
-@since: 2012-07-22
+@since: 2014-06-06
 '''
 from __future__ import print_function, division, absolute_import
 import sys, os, re, gzip, codecs, json
@@ -18,6 +22,7 @@ from pyutil.corpus import mwe_lexicons
 
 SRCDIR = os.path.dirname(os.path.abspath(__file__))
 DATADIR = SRCDIR+'/../data'
+LEXDIR = SRCDIR+'/../lex'
 
 def hasFirstOrderFeatures():
     return True
@@ -71,62 +76,223 @@ def wordClusterID(word):
     if cid=='UNK': return cid, None
     return 'C'+str(cid), topClusterMembers[cid]
 
-"""
-_options = {'usePrefixAndSuffixFeatures': False, 
-            'useClusterFeatures': False, 
-            'useClusterPrefixFeatures': False,
-            'useBigramFeatures': False, # token bigrams
-            'useFirstSensePlusToken': False,
-            'useContextPOSFilter': False,
-            'WordNetPath': SRCDIR+'/../dict/file_properties.xml',
-            "clusterFile": DATADIR+"/clusters/clusters_1024_49.gz",
-            "useOldDataFormat": True,
-            'usePOSNeighborFeatures': False}
 
-def registerOpts(program_args):
-    _options['usePrevLabel'] = not program_args.excludeFirstOrder
-    _options['useBigramFeatures'] = program_args.bigrams
-    _options['useClusterFeatures'] = program_args.clusters
-    _options['clusterFile'] = program_args.cluster_file
-    _options['usePOSNeighborFeatures'] = program_args.pos_neighbors
-    _options['useContextPOSFilter'] = program_args.cxt_pos_filter
-    
-    loadDefaults()
-    if program_args.lex is not None:
-        mwe_lexicons.load_lexicons(program_args.lex)
+SUPERSENSES = list(map(str.strip, '''
+noun.person         
+noun.artifact         
+noun.act
+noun.cognition
+noun.communication
+noun.group         
+noun.attribute     
+noun.location
+noun.time    
+noun.state
+noun.body    
+noun.substance     
+noun.quantity         
+noun.event         
+noun.object
+noun.possession
+noun.phenomenon
+noun.animal
+noun.relation
+noun.feeling
+noun.food
+noun.process
+noun.plant
+noun.shape
+noun.motive
+noun.other
+verb.stative         
+verb.communication 
+verb.change        
+verb.cognition     
+verb.social         
+verb.motion         
+verb.possession     
+verb.contact         
+verb.perception     
+verb.creation      
+verb.emotion         
+verb.consumption     
+verb.body
+verb.competition
+verb.weather
+'''.strip().split()))
+assert len(SUPERSENSES)==41,len(SUPERSENSES)
+for i in range(len(SUPERSENSES)):
+    pos, name = SUPERSENSES[i].split('.')
+    if pos=='noun':
+        name = name.upper()
+    SUPERSENSES[i] = name.replace('OBJECT','NATURAL OBJECT')
+
+NOUNTOPS = {'entity.n.01': 'OTHER',
+'physical_entity.n.01': 'OTHER',
+'abstraction.n.06': 'OTHER',
+'thing.n.12': 'OTHER',
+'object.n.01': 'OTHER',
+'whole.n.02': 'OTHER',
+'congener.n.03': 'OTHER',
+'living_thing.n.01': 'OTHER',
+'organism.n.01': 'OTHER',
+'benthos.n.02': 'OTHER',
+'dwarf.n.03': 'OTHER',
+'heterotroph.n.01': 'OTHER',
+'parent.n.02': 'OTHER',
+'life.n.10': 'OTHER',
+'biont.n.01': 'OTHER',
+'cell.n.02': 'OTHER',
+'causal_agent.n.01': 'OTHER',
+'person.n.01': 'PERSON',
+'animal.n.01': 'ANIMAL',
+'plant.n.02': 'PLANT',
+'native.n.03': 'OTHER',
+'natural_object.n.01': 'NATURAL OBJECT',
+'substance.n.01': 'SUBSTANCE',
+'substance.n.07': 'SUBSTANCE',
+'matter.n.03': 'OTHER',
+'food.n.01': 'FOOD',
+'nutrient.n.02': 'SUBSTANCE',
+'artifact.n.01': 'ARTIFACT',
+'article.n.02': 'ARTIFACT',
+'psychological_feature.n.01': 'OTHER',
+'cognition.n.01': 'COGNITION',
+'motivation.n.01': 'MOTIVE',
+'attribute.n.02': 'ATTRIBUTE',
+'state.n.02': 'STATE',
+'feeling.n.01': 'FEELING',
+'location.n.01': 'LOCATION',
+'shape.n.02': 'SHAPE',
+'time.n.05': 'TIME',
+'space.n.01': 'ATTRIBUTE',
+'absolute_space.n.01': 'ATTRIBUTE',
+'phase_space.n.01': 'ATTRIBUTE',
+'event.n.01': 'EVENT',
+'process.n.06': 'PROCESS',
+'act.n.02': 'ACT',
+'group.n.01': 'GROUP',
+'relation.n.01': 'RELATION',
+'possession.n.02': 'POSSESSION',
+'social_relation.n.01': 'RELATION',
+'communication.n.02': 'COMMUNICATION',
+'measure.n.02': 'QUANTITY',
+'phenomenon.n.01': 'PHENOMENON'}
+assert not set(NOUNTOPS.values())-set(SUPERSENSES),set(NOUNTOPS.values())-set(SUPERSENSES)
+
+@memoize
+def supersense(synset):
+    if synset.lexname=='noun.Tops':
+        return NOUNTOPS[synset.name]
+    pos, name = synset.lexname.split('.')
+    if pos=='noun':
+        return name.upper()
+    elif pos=='verb':
+        return name
+    return synset.lexname   # adj.all, adv.all
 
 
-def hasFirstOrderFeatures():
-    return _options['usePrevLabel']
-
-def wordClusterID(word):
-    cid = clusterMap.get(word.lower(), 'UNK')
-    if cid=='UNK': return cid
-    return 'C'+str(cid)
-
-
-clusterMap = None
-
-
-startSymbol = None
-endSymbol = None
-
-
-
-
-
-        
-
-senseTrie = None  # word1 -> {word2 -> ... -> {pos -> most frequent supersense}}
+senseTrie = Trie()  # lemma sequence -> ordered list of supersenses
 senseCountMap = {} # pos -> {word -> number of senses}
 possibleSensesMap = {} # stem -> set of possible supersenses
 
+nSupersenseEntries = 0
+if __name__=='__main__' and not os.path.exists(LEXDIR+'/wordnet_supersenses.json'):
+    print('building WordNet supersense lexicon...', file=sys.stderr, end=' ')
+    with open(LEXDIR+'/wordnet_supersenses.json','w') as outF:
+        
+        for lemma_name in wn.all_lemma_names():
+            entry = {"lemma_name": lemma_name, "lemmas": lemma_name.split('_'), 
+                     "supersenses": [supersense(syn) for syn in wn.synsets(lemma_name)]}
+            nSupersenseEntries += 1
+            outF.write(json.dumps(entry)+'\n')
+    print('done:',nSupersenseEntries,'entries', file=sys.stderr)
+if __name__!='__main__':
+    print('loading WordNet supersense lexicon...', file=sys.stderr, end=' ')
+    with open(LEXDIR+'/wordnet_supersenses.json') as inF:
+        for ln in inF:
+            entry = json.loads(ln.strip())
+            allsupersenses = entry["supersenses"]
+            supersenses = {"v": [sst for sst in allsupersenses if sst.islower() and '.' not in sst],
+             "n": [sst for sst in allsupersenses if sst.isupper() and '.' not in sst]}
+            senseTrie[entry["lemmas"]] = supersenses
+            nSupersenseEntries += 1
+        print('done:',nSupersenseEntries,'entries', file=sys.stderr)
 
+@memoize
+def _isO(label):
+    return int(label[0].upper()=='O')
 
-"""
+@memoize
+def _isBI(label):
+    return int(label[0].upper()!='O')
 
 def extractWNSupersenseCandidates(sent):
-    pass
+    sw_supersenses = [()]*len(sent)   # WordNet supersenses associated with single word
+    mw_supersenses = [()]*len(sent)   # WordNet supersenses associated with longest sequence beginning at the given word
+    nextN_supersenses = [(None,())]*len(sent)    # WordNet supersenses associated with subsequent noun
+    cposes = [coarsen(tok.pos) for tok in sent]
+    stems = [tok.stem for tok in sent]
+    for j,tok in enumerate(sent):
+        # single-word supersenses
+        supersenses = senseTrie.get([tok.stem])
+        if supersenses:
+            cpos = cposes[j].replace('^','N')
+            if cpos in ('N','V'):
+                sw_supersenses[j] = supersenses[cpos.lower()]
+        
+        stemMatch = None
+        if cposes[j]=='V' and 'T' in cposes[j+1:]:  # verb followed by particle with no intervening verb
+            k = cposes.index('T',j+1)
+            if 'V' not in cposes[j+1:k]:
+                stemMatch = senseTrie.longest([stems[j],stems[k]])
+        if not stemMatch:
+            stemMatch = senseTrie.longest(stems[j:])    # longest contiguous match
+        if stemMatch:
+            match, supersenses = stemMatch
+            lastCPOS = cposes[j+len(match)-1]
+            if lastCPOS in ('V','T') and supersenses["v"]:
+                mw_supersenses[j] = supersenses["v"]
+            else:
+                mw_supersenses[j] = supersenses["n"]+supersenses["v"]
+    
+    for j,tok in enumerate(sent):
+        cpos = cposes[j]
+        if cpos in ('N','V','J') and 'N' in cposes[j+1:]:   # common noun, verb, adj
+            # find next common noun with no intervening verb
+            k = cposes.index('N',j+1)
+            if 'V' not in cposes[j+1:k]:
+                nextN_supersenses[j] = cpos,sw_supersenses[k]
+                
+    return sw_supersenses, mw_supersenses, nextN_supersenses
+
+def extractWNSupersenseFeat(ff, j, supersenseCandidatesThisSent):
+    
+    sw_supersenses, mw_supersenses, (cpos,nextN_supersenses) = zip(*supersenseCandidatesThisSent)[j]
+    
+    #@memoize
+    def _hasWNSupersense(label):
+        parts = label.split('-')
+        if len(parts)==1: return 0
+        a, b = parts
+        return int(b in (sw_supersenses if a.upper()=='O' else mw_supersenses))
+    
+    if not sw_supersenses and not mw_supersenses:
+        ff['WN_supersense_unavailable'] = 1
+        return
+    
+    # for [Oo]-* labels (single-word expression)
+    firstO = sw_supersenses[0] if sw_supersenses else None
+    # for [^Oo]-* labels (possibly multiword expression)
+    firstBI = mw_supersenses[0] if mw_supersenses else None
+    if firstO==firstBI:
+        if firstO: ff['WN_1st_supersense',firstO] = 1
+    else:
+        if firstO: ff['WN_1st_supersense',firstO] = _isO
+        if firstBI: ff['WN_1st_supersense',firstBI] = _isBI
+    ff['WN_has_supersense'] = _hasWNSupersense
+    if nextN_supersenses:
+        ff['cpos',cpos,'WN_nextN_1st_supersense',nextN_supersenses[0]] = 1
 
 def extractLexiconCandidates(sent):
     '''
@@ -143,72 +309,10 @@ def extractLexiconCandidates(sent):
             for listname,lex in mwe_lexicons._lists.items()})
 
 
-"""
-def extractLexiconCandidates(sent, lowercase=True):
-    sent_cands = []
-    contig = defaultdict(list)
-    gappy = []
-    tokmap = defaultdict(set)
-    for j,t in enumerate(sent):
-        tokmap[t.token].add(j)
-    toks = set(tokmap.keys())
-    sent_tokens = [t.token.lower() if lowercase else t.token for t in sent]
-    sent_stems = [t.stem.lower() if lowercase else t.stem for t in sent]
-    for tok in toks:
-        if tok in lexicons:
-            for entry in lexicons[tok]:
-                if "lemmas" in entry:
-                    entry_words = [w.lower() if lowercase else w for w in entry["lemmas"]]
-                    entry["lemmas"] = entry_words
-                    sent_words = sent_stems
-                else:
-                    entry_words = [w.lower() if lowercase else w for w in entry["words"]]
-                    entry["words"] = entry_words
-                    sent_words = sent_tokens
-                
-                if set(entry_words)<=toks:  # all entry words are in the sentence
-                    if entry not in sent_cands:
-                        sent_cands.append(entry)
-                    entryLen = len(entry_words)
-                    isContig = False  # can this occurrence be contiguous?
-                    for j in tokmap[tok]:
-                        for i in range(max(j-entryLen,0),min(j+entryLen,len(sent))):
-                            # all matched-length spans of the sentence including j
-                            if set(sent_words[j-i:j-i+entryLen])==set(entry_words):
-                                # found a contiguous occurrence! not necessarily matching the order of words in the entry
-                                isContig = True
-                                for k in range(i,i+entryLen):
-                                    contig[k].append((i, entry))
-                                    
-                    if not isContig and entry not in gappy:
-                        if not any(len(w)>3 for w in entry_words):
-                            continue    # probably all function words, not intended to be gappy
-                        if len(entry_words)==2 and ('the' in entry_words or 'a' in entry_words or 'an' in entry_words or 'of' in entry_words):
-                            continue    # probably not really gappy
-                        longestLen = max(len(w) for w in entry_words)
-                        ok = False
-                        for w in entry_words:
-                            if len(w)<longestLen: continue
-                            if any(t for it,t in enumerate(sent_words) if t==w and sent[it].pos not in {'DT','PDT','IN','MD','CC','PRP','PRP$','WDT','WRB','WP','WP$'}):
-                                ok = True
-                        if not ok:  # longest words are function words. probably should not be gappy
-                            continue
-                        
-                        # construct a regex of the entry words & the sentence to see if order is preserved
-                        entryR = ' ' + r' .* '.join(re.escape(w) for w in entry_words) + ' '
-                        if not re.search(entryR, ' '+' '.join(sent_words)+' ', re.U):
-                            continue    # ordering mismatch
-                        
-                        gappy.append(entry)
-    
-    return contig, gappy
-"""
-
 
 
 @memoize
 def coarsen(pos):
-    
     if pos=='TO': return 'I'
     elif pos.startswith('NNP'): return '^'
     elif pos=='CC': return '&'
@@ -233,6 +337,8 @@ SENSENUM = re.compile(r'\.(\d\d|XX)')
 
 THRESHOLDS = [25,50,75,100,150]+range(200,1000,100)+range(10**3,10**4,10**3)+range(10**4,10**5,10**4)+range(10**5,10**6,10**5)+range(10**6,10**7,10**6)
 
+
+
 def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer=None,
                          candidatesThisSentence=None):
     '''
@@ -248,10 +354,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
     @return: feature name -> value
     '''
     
-    (lexiconCandidates, listCandidates), supersenseCandidates = candidatesThisSentence or (({}, {}), None)
+    (lexiconCandidates, listCandidates), supersenseCandidates = candidatesThisSentence or (({}, {}), [])
     
     ff = IndexedFeatureMap(indexer) if indexer is not None else {}
-    
     
     # note: in the interest of efficiency, we use tuples rather than string concatenation for feature names
     
@@ -263,12 +368,22 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         # bias
         ff[()] = 1
         
-        # first sense features
         
          
         # original token, token position-in-sentence features
         if sent[j].token[0].isupper():
-            ff['capitalized_BOS' if j==0 else 'capitalized_!BOS'] = 1
+            #ff['capitalized_BOS' if j==0 else 'capitalized_!BOS'] = 1 # old version of feature (in mweFeatures)
+            nCap = sum(1 for tkn in sent if tkn.token[0].isupper())
+            if j==0:
+                ff['capitalized_BOS'] = 1
+                if nCap>=(len(sent)-nCap):
+                    ff['capitalized_BOS_majcap'] = 1
+            else:
+                ff['capitalized_!BOS'] = 1
+                if nCap>=(len(sent)-nCap):
+                    ff['capitalized_!BOS_majcap'] = 1
+                if sent[0].token[0].islower():
+                    ff['capitalized_!BOS_BOSlower'] = 1
         ff['shape', sent[j].shape] = 1
         if j<2:
             ff['offset_in_sent=',str(j)] = 1
@@ -325,6 +440,20 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             ff['w_+1_pos_+0', sent[j+1].token.lower(), sent[j].pos] = 1
         
         
+        # - auxiliary verb/main verb (new relative to mweFeatures)
+        if coarsen(sent[j].pos)=='V':
+            cposes = [coarsen(tok.pos) for tok in sent[j:]]
+            if len(cposes)>1 and cposes[1]=='V':
+                # followed by another verb: probably an aux (though there are exceptions: 
+                # "try giving", "all people want is", etc.)
+                ff['auxverb'] = 1
+            elif len(cposes)>2 and cposes[1]=='R' and cposes[2]=='V':
+                # followed by an adverb followed by a verb: probably an aux
+                ff['auxverb'] = 1
+            else:
+                ff['mainverb'] = 1
+        
+        
         # lexicon features
         
         if not wn.lemmas(sent[j].stem):
@@ -333,6 +462,9 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
         else:
             wn_pos_set = frozenset({lem.synset.pos.replace('s','a') for lem in wn.lemmas(sent[j].stem)})
             wn_pos_setS = '{'+repr(tuple(wn_pos_set))[1:-1]+'}'
+        
+        # - WordNet supersense (new relative to mweFeatures)
+        extractWNSupersenseFeat(ff, j, supersenseCandidates)
         
         if useWNCompound:
             # - compound

@@ -3,6 +3,7 @@ Viterbi, scoring implementations. Called from DiscriminativeTagger.decode().
 '''
 from __future__ import print_function, division
 import operator
+from numbers import Number
 
 #cimport cython
 
@@ -116,10 +117,11 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
             
             # compute dot products by iterating over percepts, then updating all label scores (for memory locality)
             labelScores0[:] = 0
-            for h,v in o0FeatureMap.items():
+            for h,vv in o0FeatureMap.items():
                 ###for l,label in enumerate(labels):
                     ###labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
                 for l,wt in weights.p(h).iteritems(): # only iterate over labels with nonzero weights for this percept
+                    v = vv(labels[l]) if not isinstance(vv,Number) else vv
                     labelScores0[l] += wt*v
             
             for l,label in enumerate(labels):
