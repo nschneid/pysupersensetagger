@@ -268,12 +268,6 @@ class DiscriminativeTagger(object):
             for h,vv in factorFeats.items():
                 ###featIndex = _ground(h, goldLabel, self._featureIndexes)
                 featIndex = (h,goldLabel)
-                '''
-                if not isinstance(vv,Number):
-                    print(self._labels[goldLabel], file=sys.stderr)
-                    print(vv, file=sys.stderr)
-                    print(vv(self._labels[goldLabel]), file=sys.stderr)
-                '''
                 v = vv(self._labels[goldLabel]) if not isinstance(vv,Number) else vv
                 updates.add(featIndex)
                 if sumsqgrads:
