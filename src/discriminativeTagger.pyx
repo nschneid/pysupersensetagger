@@ -28,45 +28,106 @@ from decoding cimport _ground0, _ground, c_viterbi, i_viterbi
 # inline functions _ground0() and _ground() are duplicated in decoding.pyx
 
 
-class Weights(object):
-    def __init__(self, initial=None):
-        self._w = defaultdict(dict)
+cdef class Weights(object):
+    cdef float _l0, _l1, _sql2
+    cdef list _w
+    def __init__(self, sizeOrDefault=None):
+        cdef int percept, i
+        cdef dict d
+        self._w = []
         self._l0 = 0
         self._l1 = 0
         self._sql2 = 0
-        if initial: # copy constructor
-            for percept,d in initial._w:
-                self._w[percept] = dict(d)
-            self._l0 = initial._l0
-            self._l1 = initial._l1
-            self._sql2 = initial._sql2
+        if sizeOrDefault:   # size (number of percepts)
+            if isinstance(sizeOrDefault,int):
+                self._w = [dict() for i in range(sizeOrDefault)]
+            else: # copy constructor
+                for percept,d in enumerate(sizeOrDefault._w):
+                    self._w[percept] = dict(d)
+                self._l0 = sizeOrDefault._l0
+                self._l1 = sizeOrDefault._l1
+                self._sql2 = sizeOrDefault._sql2
     
-    def p(self, percept):
+    def p(self, int percept):
         return self._w[percept]
     
+    def nPercepts(self):
+        return len(self._w)
+    
     def __getitem__(self, key):
+        cdef int percept, label
         percept, label = key
         return self._w[percept].get(label,0.0)
     
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, float value):
+        cdef int percept, label
+        cdef float oldvalue
+        cdef dict perceptwts
+        
         percept, label = key
-        if percept in self._w and label in self._w[percept]:
-            oldvalue = self._w[percept][label]
-            self._l1 -= abs(oldvalue)
-            self._sql2 -= oldvalue*oldvalue
-            if value==0.0:  # was nonzero, now 0
-                del self._w[percept][label]
-                self._l0 -= 1
-        elif value!=0.0:    # new nonzero param
-            self._w[percept][label] = value
+        perceptwts = self._w[percept]
+        oldvalue = perceptwts.get(label,0.0)
+        perceptwts[label] = value
+        
+        if oldvalue!=0.0 and value==0.0:
+            self._l0 -= 1
+        elif oldvalue==0.0 and value!=0.0:
             self._l0 += 1
-        else:
-            return
-            
+        self._l1 -= abs(oldvalue)
+        self._sql2 -= oldvalue*oldvalue
         self._l1 += abs(value)
         self._sql2 += value*value
+        
+    def store_average(self, Weights currentWeights, Weights avgWeightDeltas, int timestep):
+        for percept in range(currentWeights.nPercepts()):
+            for l in set(currentWeights._w[percept]) | set(avgWeightDeltas._w[percept]):
+                self[percept,l] = currentWeights[percept,l] - avgWeightDeltas[percept,l]/timestep
                 
 
+class ArrayWeights(object):
+    def __init__(self, sizeOrDefault):
+        self._w = []
+        self._l0 = 0
+        self._l1 = 0
+        self._sql2 = 0
+        if sizeOrDefault:   # size (number of percepts)
+            if isinstance(sizeOrDefault,tuple):
+                nPercepts, nLabels = sizeOrDefault
+                self._w = [0.0]*(nPercepts*nLabels)
+                self._nPercepts = nPercepts
+                self._nLabels = nLabels
+            else: # copy constructor
+                self._w = list(sizeOrDefault)
+                self._l0 = sizeOrDefault._l0
+                self._l1 = sizeOrDefault._l1
+                self._sql2 = sizeOrDefault._sql2
+                self._nPercepts = sizeOrDefault._nPercepts
+                self._nLabels = sizeOrDefault._nLabels
+    
+    def p(self, percept): # labels and weights for percept
+        return {l: self[percept,l] for l in range(self._nLabels)}
+    
+    def __getitem__(self, key):
+        percept, label = key
+        return self._w[_ground0(percept, label, self._nPercepts)]
+    
+    def __setitem__(self, key, value):
+        percept, label = key
+        featIndex = _ground0(percept, label, self._nPercepts)
+        oldvalue = self._w[featIndex]
+        self._w[featIndex] = value
+        if oldvalue!=0.0 and value==0.0:
+            self._l0 -= 1
+        elif oldvalue==0.0 and value!=0.0:
+            self._l0 += 1
+        self._l1 -= abs(oldvalue)
+        self._l1 += abs(value)
+        self._sql2 -= oldvalue*oldvalue
+        self._sql2 += value*value
+        
+    def store_average(self, currentWeights, avgWeightDeltas, timestep):
+        for i in range(len(self._w)):
+            self._w[i] = currentWeights._w[i] - avgWeightDeltas._w[i]/timestep
 
 '''
 cdef float l2norm(float[:] weights):
@@ -77,7 +138,7 @@ cdef float l2norm(float[:] weights):
         t += weights[i]*weights[i]
     return t**0.5
 '''
-def l2norm(weights): return weights._sql2**0.5
+cdef l2norm(Weights weights): return weights._sql2**0.5
 """
 cdef void average_weights(object finalWeights, object currentWeights, object avgWeightDeltas, int timestep):
     '''Final step of weight averaging. See Hal Daume's thesis, Figure 2.3.'''
@@ -86,9 +147,8 @@ cdef void average_weights(object finalWeights, object currentWeights, object avg
         finalWeights[i] = currentWeights[i] - avgWeightDeltas[i]/timestep
 """
 def average_weights(finalWeights, currentWeights, avgWeightDeltas, timestep):
-    for percept in currentWeights._w:
-        for l in set(currentWeights._w[percept]) | set(avgWeightDeltas._w[percept]):
-            finalWeights[percept,l] = currentWeights[percept,l] - avgWeightDeltas[percept,l]/timestep
+    return finalWeights.store_average(currentWeights, avgWeightDeltas, timestep)
+    
 
 class DiscriminativeTagger(object):
     def __init__(self, cutoff=None, defaultY=None):
@@ -177,7 +237,8 @@ class DiscriminativeTagger(object):
         
         updates = set()    # indices of weights updated
         
-        ###cdef int featIndex
+        cdef int h, i, goldLabel, predLabel
+        cdef float v
         
         for indices,factorFeats in goldDerivation:
             
@@ -354,7 +415,7 @@ class DiscriminativeTagger(object):
             
             METHOD = 'c'   # conventional and/or iterative Viterbi
             if 'c' in METHOD:
-                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, labelScores0, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, labelScores0, o1FeatWeights, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
                 c_preds = [x.prediction for x in sent]
             if 'i' in METHOD:
                 i_score, derivation = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
@@ -466,7 +527,8 @@ class DiscriminativeTagger(object):
         
         
         nLabels = len(self._labels) # number of (actual) labels
-        nWeights = len(self._labels)*len(self._featureIndexes)
+        nPercepts = len(self._featureIndexes)
+        nWeights = nLabels*nPercepts
         
         if not sumsqgrads and sumsqgrads is not None:   # for AdaGrad
             sumsqgrads.extend([0.0 for j in range(nWeights)])
@@ -486,7 +548,7 @@ class DiscriminativeTagger(object):
         # currentWeights & finalWeights are initialized to self._weights if set, otherwise 0
         ###avgWeightDeltas = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
         ###avgWeightDeltas[:] = 0
-        avgWeightDeltas = Weights()
+        avgWeightDeltas = Weights(nPercepts)
         # initialized to 0
         
         '''
@@ -501,8 +563,8 @@ class DiscriminativeTagger(object):
             currentWeights = Weights(self._weights)
             finalWeights = Weights(self._weights)
         else:
-            currentWeights = Weights()
-            finalWeights = Weights()
+            currentWeights = Weights(nPercepts)
+            finalWeights = Weights(nPercepts)
         
         
         totalInstancesProcessed = 0
@@ -560,7 +622,7 @@ class DiscriminativeTagger(object):
             if nWeightUpdates==0:
                 print('converged! stopped training', file=sys.stderr)
                 break
-
+            
         # really just a formality, I think
         decoder.close()
         
@@ -678,10 +740,10 @@ class DiscriminativeTagger(object):
         saveFP = savePrefix+'.pickle'
         # lists but not arrays can be pickled. so temporarily store a list.
         weights = self._weights
-        if not isinstance(self._weights, (list,Weights)):
+        if not isinstance(self._weights, (list,Weights,ArrayWeights)):
             self._weights = list(weights)
         with open(saveFP, 'wb') as saveF:
-            cPickle.dump(self, saveF)
+            cPickle.dump(self, saveF, protocol=2)
         self._weights = weights
     
     @staticmethod
