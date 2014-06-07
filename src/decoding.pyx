@@ -75,9 +75,10 @@ def legalTagBigram(lbl1, lbl2, useBIO=False, requireClassMatch=False):
                     return False
         return True
 
-cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 
-              float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0, 
-              labels, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+cdef c_viterbi(sent, o0Feats, featureExtractor, weights, 
+              float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0,
+              float[:,:,:] o1FeatWeights, 
+              labels, featureIndexes, includeLossTerm=False, float costAugVal=0.0, useBIO=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
         under the current weight vector. Updates the predicted labels in 'sent'. 
         Used in both training and testing.'''
@@ -86,14 +87,23 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
         
         hasFOF = featureExtractor.hasFirstOrderFeatures()
         
-        cdef int nTokens, i, k, l, maxIndex
-        cdef float score, score0, maxScore, NEGINF
+        cdef int nTokens, h, i, k, l, maxIndex, r
+        cdef float score, score0, maxScore, NEGINF, wt, v
         
         NEGINF = float('-inf')
         nTokens = len(sent)
         nLabels = len(labels)
         
-        o1FeatWeights = {l: {} for l in range(nLabels)}   # {current label -> {prev label -> weight}}
+        #o1FeatWeights = {l: {} for l in range(nLabels)}   # {current label -> {prev label -> weight}}
+        #o1FeatWeights is the transition matrix. initialized elsewhere
+        if hasFOF and o1FeatWeights[0,0,0]==float('inf'):   # float('inf') means the cache has been cleared due to a weight update
+            # populate the transition cache
+            for l,leftLabel in enumerate(labels):
+                for r,rightLabel in enumerate(labels):
+                    if not legalTagBigram(leftLabel, rightLabel, useBIO):
+                        o1FeatWeights[0,r,l] = NEGINF
+                    else:
+                        o1FeatWeights[0,r,l] = weights[featureIndexes[('prevLabel=',leftLabel)],r]
         
         prevLabel = None
         
@@ -107,8 +117,10 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
             # compute dot products by iterating over percepts, then updating all label scores (for memory locality)
             labelScores0[:] = 0
             for h,v in o0FeatureMap.items():
-                for l,label in enumerate(labels):
-                    labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
+                ###for l,label in enumerate(labels):
+                    ###labelScores0[l] += weights[_ground0(h, l, indexerSize)]*v
+                for l,wt in weights.p(h).iteritems(): # only iterate over labels with nonzero weights for this percept
+                    labelScores0[l] += wt*v
             
             for l,label in enumerate(labels):
                 
@@ -161,9 +173,10 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
                                 score += weights[self.getGroundedFeatureIndex(h, l)]*v
                             '''
                             # TODO: generalize this to allow other kinds of first-order features?
-                            if k not in o1FeatWeights[l]:
-                                o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
-                            score += o1FeatWeights[l][k]
+                            ###if k not in o1FeatWeights[l]:
+                                ###o1FeatWeights[l][k] = weights[_ground0(featureIndexes[('prevLabel=',prevLabel)], l, indexerSize)]
+                                ###o1FeatWeights[l][k] = weights[featureIndexes[('prevLabel=',prevLabel)],l]
+                            score += o1FeatWeights[0,l,k]
                             
                         # find the max of the combined score at the current position
                         # and store the backpointer accordingly
