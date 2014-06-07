@@ -22,6 +22,10 @@ class Trie(object):
     ...    assert t.get(s)==s.upper()
     >>> 'pescatarian' in t
     False
+    >>> 'pastafarian' in t
+    True
+    >>> 'pasta' in t
+    False
     >>> print(t.get('pescatarian'))
     None
     >>> t.longest('pasta', False)
@@ -74,8 +78,9 @@ class Trie(object):
             return self._vals.get(first, default)
         
     def longest(self, seq, default=None):
-        '''@return: pair of longest prefix of 'seq' corresponding to a value in the Trie, and 
-        that value. If no prefix of 'seq' has a value, returns 'default'.'''
+        '''@return: pair of longest prefix of 'seq' 
+        corresponding to a value in the Trie, and that value. 
+        If no such prefix of 'seq' has a value, returns 'default'.'''
         
         first, rest = seq[0], seq[1:]
         longer = self._map[first].longest(rest, default) if rest and first in self._map else default
@@ -86,3 +91,7 @@ class Trie(object):
                 return default
         else:
             return ((first,)+longer[0], longer[1])
+
+if __name__=='__main__':
+    import doctest
+    doctest.testmod()
