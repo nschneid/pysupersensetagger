@@ -35,6 +35,7 @@ cdef class Weights(object):
     def __init__(self, sizeOrDefault=None):
         cdef int percept, i
         cdef dict d
+        cdef Weights default
         self._w = []
         self._l0 = 0
         self._l1 = 0
@@ -43,11 +44,15 @@ cdef class Weights(object):
             if isinstance(sizeOrDefault,int):
                 self._w = [dict() for i in range(sizeOrDefault)]
             else: # copy constructor
-                for percept,d in enumerate(sizeOrDefault._w):
-                    self._w[percept] = dict(d)
-                self._l0 = sizeOrDefault._l0
-                self._l1 = sizeOrDefault._l1
-                self._sql2 = sizeOrDefault._sql2
+                default = sizeOrDefault
+                for d in default._w:
+                    self._w.append(dict(d))
+                self._l0 = default._l0
+                self._l1 = default._l1
+                self._sql2 = default._sql2
+    
+    def copy(self):
+        return Weights(self)
     
     def p(self, int percept):
         return self._w[percept]
