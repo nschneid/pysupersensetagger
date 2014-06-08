@@ -17,6 +17,13 @@ from collections import defaultdict, Counter, namedtuple
 
 from mweval import Ratio, f1
 
+def sstpos(sst):
+    if '`' in sst: return '`'
+    elif sst.isupper(): return 'N'
+    elif sst[0].isupper(): return 'P'
+    elif sst.islower(): return 'V'
+    assert False,sst
+
 if __name__=='__main__':
     args = sys.argv[1:]
     
@@ -68,10 +75,13 @@ if __name__=='__main__':
             conf[g,p] += 1
             if g:
                 stats[g]['nGold'] += 1
+                stats[sstpos(g)]['nGold'] += 1
             if p:
                 stats[p]['nPred'] += 1
+                stats[sstpos(p)]['nPred'] += 1
                 if g==p:
                     stats[p]['tp'] += 1
+                    stats[sstpos(p)]['tp'] += 1
         
     stats['Exact Tag']['Acc'] = Ratio(stats['Exact Tag']['tp'], stats['Exact Tag']['nGold'])
     for x in stats:
