@@ -248,7 +248,16 @@ class DiscriminativeTagger(object):
         
         for indices,factorFeats in goldDerivation:
             
-            if not any(sent[i].prediction!=sent[i].gold for i in indices): continue
+            #if not any(sent[i].prediction!=sent[i].gold for i in indices): continue
+            # the generator expression is flagged by the profiler (not sure why), so instead do:
+            if len(indices)==2:
+                i, i2 = indices
+            else:
+                assert len(indices)==1
+                i = i2 = indices[0]
+            if sent[i].prediction==sent[i].gold and sent[i2].prediction==sent[i2].gold:
+                continue
+            
             # is this correct if we are being cost-augmented?
             # yes, so long as the decoder used the cost properly to determine the prediction
             

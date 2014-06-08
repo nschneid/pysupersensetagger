@@ -1,3 +1,5 @@
+# cython: profile=True
+# cython: infer_types=True
 '''
 Viterbi, scoring implementations. Called from DiscriminativeTagger.decode().
 '''
@@ -88,7 +90,7 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
         
         hasFOF = featureExtractor.hasFirstOrderFeatures()
         
-        cdef int nTokens, h, i, k, l, maxIndex, r
+        cdef int nTokens, h, i, k, l, maxIndex, r, legalStartStop
         cdef float score, score0, maxScore, NEGINF, wt, v
         
         NEGINF = float('-inf')
@@ -97,6 +99,11 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
         
         #o1FeatWeights = {l: {} for l in range(nLabels)}   # {current label -> {prev label -> weight}}
         #o1FeatWeights is the transition matrix. initialized elsewhere
+        if o1FeatWeights[1,0,0]==float('inf'):   # the [1] section of o1FeatWeights stores whether labels are valid as start/end labels
+            for l,label in enumerate(labels):
+                o1FeatWeights[1,l,0] = 2*int(legalTagBigram(None, label, useBIO)) \
+                                     + int(legalTagBigram(label, None, useBIO)) # legal start label? end label? 
+        
         if hasFOF and o1FeatWeights[0,0,0]==float('inf'):   # float('inf') means the cache has been cleared due to a weight update
             # populate the transition cache
             for l,leftLabel in enumerate(labels):
@@ -126,6 +133,8 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
             
             for l,label in enumerate(labels):
                 
+                legalStartStop = int(o1FeatWeights[1,l,0])
+                
                 # initialize stuff
                 maxScore = NEGINF
                 maxIndex = -1
@@ -141,11 +150,11 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
                     if (label=='O' or label=='o') and (sent[i].gold=='B' or sent[i].gold=='b'):
                         score0 += costAugVal    # recall-oriented penalty (for erroneously predicting 'O')
                 
-                if i==nTokens-1 and not legalTagBigram(label, None, useBIO):
+                if i==nTokens-1 and not legalStartStop&1:   # not legal stop label
                     maxScore = score = NEGINF
                 elif i==0:
                     score = score0
-                    if not legalTagBigram(None, label, useBIO):
+                    if not legalStartStop>>1:   # not legal start label
                         score = NEGINF
                     maxScore = score
                     maxIndex = 0    # doesn't matter--start of sequence
@@ -154,7 +163,7 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
                 else:
                     # consider each possible previous label
                     for k,prevLabel in enumerate(labels):
-                        if not legalTagBigram(prevLabel, label, useBIO):
+                        if o1FeatWeights[0,l,k]==NEGINF:
                             continue
                         
                         # compute correct score based on previous scores
