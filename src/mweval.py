@@ -75,6 +75,8 @@ def coarsen(ptbpos):
 RE_TAGGING = re.compile(r'^(O|B(o|b[iīĩ]+|[IĪĨ])*[IĪĨ]+)+$'.decode('utf-8'))
 
 def require_valid_tagging(tagging, kind='tagging'):
+    '''Verifies the chunking is valid.'''
+    
     # method 1: check regex
     ex1 = ex2 = None
     
@@ -256,11 +258,11 @@ if __name__=='__main__':
     for gln in fileinput.input(goldFP):
         gparts = gln[:-1].split('\t')
         gdata = json.loads(gparts[2])
-        gtags = [t.encode('utf-8') for t in gdata["tags"]]
+        gtags = [t[0].encode('utf-8') for t in gdata["tags"]]  # remove class labels, if any
         pln = next(predFP)
         pparts = pln[:-1].split('\t')
         pdata = json.loads(pparts[2])
-        ptags = [t.encode('utf-8') for t in pdata["tags"]]
+        ptags = [t[0].encode('utf-8') for t in pdata["tags"]]  # remove class labels, if any
         words, poses = zip(*gdata["words"])
         eval_sent(zip(words,gtags,ptags), poses, 
                   genstats, sstats, wstats, bypos, indata=(gdata,pdata), default_strength=default_strength)
