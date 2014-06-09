@@ -769,12 +769,6 @@ class DiscriminativeTagger(object):
         saveFP = savePrefix+'.pickle'
         with open(saveFP, 'rb') as saveF:
             model = cPickle.load(saveF)
-        # convert list of weights back to array
-        nWeights = len(model._weights)
-        weights = cvarray(shape=(nWeights,), itemsize=sizeof(float), format='f')
-        for i,w in enumerate(model._weights):
-            weights[i] = w
-        model._weights = weights
         return model
         
     def test(self, weights):
