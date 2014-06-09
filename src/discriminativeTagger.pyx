@@ -89,6 +89,19 @@ cdef class Weights(object):
             for l in set(currentWeights._w[percept]) | set(avgWeightDeltas._w[percept]):
                 self[percept,l] = currentWeights[percept,l] - avgWeightDeltas[percept,l]/timestep
                 
+    def __reduce__(self):
+        '''Needed to make the class picklable.'''
+        return (rebuild, (self._w, self._l0, self._l1, self._sql2))
+
+def rebuild(_w, _l0, _l1, _sql2):
+    '''Called when unpickling a Weights instance.'''
+    obj = Weights()
+    obj._w = _w
+    obj._l0 = _l0
+    obj._l1 = _l1
+    obj._sql2 = _sql2
+    return obj
+
 
 class ArrayWeights(object):
     def __init__(self, sizeOrDefault):
