@@ -84,7 +84,56 @@ def render(ww, sgroups, wgroups):
     
     after = ['' if x is None else x for x in after]
     before = [' ' if x is None else x for x in before]
-    return ''.join(sum(zip(before,ww,after), ())).strip()
+    return u''.join(sum(zip(before,ww,after), ())).strip()
+
+def process_sentence(words, lemmas, tags, labels, parents, sentId=None):
+    # form groups
+    sgroups = []
+    wgroups = []
+    i2sgroup = {}
+    i2wgroup = {}
+    for offset,(parent,strength) in sorted(parents.items()):
+        if strength in {'_',''}:
+            if parent not in i2sgroup:
+                i2sgroup[parent] = len(sgroups)
+                sgroups.append([parent])
+            i2sgroup[offset] = i2sgroup[parent]
+            sgroups[i2sgroup[parent]].append(offset)
+    for offset,(parent,strength) in sorted(parents.items()):
+        if strength=='~':   # includes transitive closure over all member strong groups
+            if parent not in i2wgroup:
+                i2wgroup[parent] = len(wgroups)
+                wgroups.append([])
+            i2wgroup[offset] = i2wgroup[parent]
+            g = wgroups[i2wgroup[offset]]
+            
+            if parent in i2sgroup: # include strong group of parent
+                for o in sgroups[i2sgroup[parent]]:
+                    if o not in g:  # avoid redundancy if weak group has 3 parts
+                        g.append(o)
+            elif parent not in g:
+                g.append(parent)
+            
+            if offset in i2sgroup:  # include strong group of child
+                for o in sgroups[i2sgroup[offset]]:
+                    i2wgroup[o] = i2wgroup[offset]  # in case the last word in a strong expression precedes part of a weak expression
+                    g.append(o)
+            else:
+                g.append(offset)
+    
+    # sanity check: number of tokens belonging to some MWE
+    assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t[0].upper()!='O'),(tags,sgroups,wgroups)
+    
+    # sanity check: no token shared by multiple strong or multiple weak groups
+    assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),(sgroups,tags,sentId)
+    assert len(set(sum(wgroups,[])))==len(sum(wgroups,[])),(wgroups,tags,sentId)
+    
+    data = {"words": words, "tags": tags, "_": sgroups, "~": wgroups,
+            "labels": {k+1: [words[k][0],lbl] for k,lbl in enumerate(labels) if lbl}}
+    if any(lemmas):
+        data["lemmas"] = lemmas
+    
+    return data
 
 def convert(inF, outF=sys.stdout):
     def readsent():
@@ -114,52 +163,9 @@ def convert(inF, outF=sys.stdout):
         
         if not words: raise StopIteration()
         
-        # form groups
-        sgroups = []
-        wgroups = []
-        i2sgroup = {}
-        i2wgroup = {}
-        for offset,(parent,strength) in sorted(parents.items()):
-            if strength in {'_',''}:
-                if parent not in i2sgroup:
-                    i2sgroup[parent] = len(sgroups)
-                    sgroups.append([parent])
-                i2sgroup[offset] = i2sgroup[parent]
-                sgroups[i2sgroup[parent]].append(offset)
-        for offset,(parent,strength) in sorted(parents.items()):
-            if strength=='~':   # includes transitive closure over all member strong groups
-                if parent not in i2wgroup:
-                    i2wgroup[parent] = len(wgroups)
-                    wgroups.append([])
-                i2wgroup[offset] = i2wgroup[parent]
-                g = wgroups[i2wgroup[offset]]
-                
-                if parent in i2sgroup: # include strong group of parent
-                    for o in sgroups[i2sgroup[parent]]:
-                        if o not in g:  # avoid redundancy if weak group has 3 parts
-                            g.append(o)
-                elif parent not in g:
-                    g.append(parent)
-                
-                if offset in i2sgroup:  # include strong group of child
-                    for o in sgroups[i2sgroup[offset]]:
-                        i2wgroup[o] = i2wgroup[offset]  # in case the last word in a strong expression precedes part of a weak expression
-                        g.append(o)
-                else:
-                    g.append(offset)
+        data = process_sentence(words, lemmas, tags, labels, parents, sentId=sentId)
         
-        # sanity check: number of tokens belonging to some MWE
-        assert len(set(sum(sgroups+wgroups,[])))==sum(1 for t in tags if t[0].upper()!='O'),(tags,sgroups,wgroups)
-        
-        # sanity check: no token shared by multiple strong or multiple weak groups
-        assert len(set(sum(sgroups,[])))==len(sum(sgroups,[])),(sgroups,tags,sentId)
-        assert len(set(sum(wgroups,[])))==len(sum(wgroups,[])),(wgroups,tags,sentId)
-        
-        data = {"words": words, "tags": tags, "_": sgroups, "~": wgroups,
-                "labels": {k+1: [words[k][0],lbl] for k,lbl in enumerate(labels) if lbl}}
-        if any(lemmas):
-            data["lemmas"] = lemmas
-        print(sentId, render(zip(*words)[0], sgroups, wgroups), json.dumps(data), sep='\t', file=outF)
+        print(sentId, render(zip(*words)[0], data["_"], data["~"]), json.dumps(data), sep='\t', file=outF)
     
     while True:
         try:
