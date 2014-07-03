@@ -127,6 +127,9 @@ class LabeledSentence(list):
 
     def __str__(self):
         '''offset   word   lemma   POS   tag   parent   strength   label   sentID'''
-        return '\n'.join(u'{offset}\t{0.token}\t{0.stem}\t{0.pos}\t{0.prediction}\t{0.predparent}\t{0.predstrength}\t{0.predlabel}\t{sentId}'.format(tok,offset=i+1,sentId=self.sentId) 
-                         for i,tok in enumerate(self)).encode('utf-8')
+        return unicode(self).encode('utf-8')
     
+    def __unicode__(self):
+        '''offset   word   lemma   POS   tag   parent   strength   label   sentID'''
+        return '\n'.join(u'{offset}\t{0.token}\t{0.stem}\t{0.pos}\t{0.prediction}\t{0.predparent}\t{0.predstrength}\t{0.predlabel}\t{sentId}'.format(tok,offset=i+1,sentId=self.sentId) 
+                         for i,tok in enumerate(self))
