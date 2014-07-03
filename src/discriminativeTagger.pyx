@@ -14,7 +14,7 @@ cimport cython
 from cython.view cimport array as cvarray
 
 from labeledSentence import LabeledSentence
-import morph
+import morph, tags2sst
 
 from pyutil.ds import features 
 
@@ -800,7 +800,12 @@ class DiscriminativeTagger(object):
         self.evaluatePredictions(self._testData, self._labels);
         '''
     
-def main():
+def opts(actual_args=None):
+    '''
+    Parse program arguments. If actual_args is None, argparse will refer to sys.argv. 
+    Otherwise, actual_args should be a list of strings.
+    '''
+    
     import argparse
     
     opts = argparse.ArgumentParser(description='Learn or predict from a discriminative tagging model')
@@ -863,14 +868,22 @@ def main():
     inflag("lex", "Lexicons to load for lookup features", nargs='*')
     inflag("clist", "Collocation lists (ranked) to load for lookup features", nargs='*')
     
-    args = opts.parse_args()
+    args = opts.parse_args(actual_args)
     
     if args.train is None and args.load is None:
         raise Exception('Missing argument: --train or --load')
     if args.YY is None and args.load is None:
         raise Exception('Missing argument: --YY')
     
-    global featureExtractor
+    return args
+    
+def setup(args):
+    '''Train or load a model.'''
+    
+    global featureExtractor, _args, _tagger_model
+    
+    _args = args
+    
     if args.mwe:
         import mweFeatures as featureExtractor
     else:
@@ -919,31 +932,73 @@ def main():
         else:
             raise NotImplemented()
     
+    _tagger_model = t
+    
+    return evalData
+    
+def analyze(tokens, poses):
+    '''
+    Set up the sentence as a dataset for prediction, then call predict().
+    Assumes setup() has already been called.
+    '''
+    assert _args.test_predict is None,_args.test_predict
+    sentence = LabeledSentence()
+    assert len(tokens)==len(poses),(tokens,poses)
+    for tkn,p in zip(tokens,poses):
+        stemS = unicode(morph.stem(tkn,p))
+        sentence.addToken(token=unicode(tkn), stem=stemS, pos=unicode(p), goldTag=None)
+    
+    predict(_args, _tagger_model, sentence=sentence, print_predictions=False)
+    
+    '''
+    {"tags": ["O", "B-motion", "o", "o-ARTIFACT", "\u012a", "O", "O", "O", "B-EVENT", "\u012a", "O"], 
+    "lemmas": ["i", "bring", "my", "car", "in", "for", "a", "simple", "emission", "test", "."], 
+    "labels": {"9": ["emissions", "EVENT"], "2": ["brought", "motion"], "4": ["car", "ARTIFACT"]}, 
+    "words": [["I", "PRP"], ["brought", "VBD"], ["my", "PRP$"], ["car", "NN"], ["in", "RB"], ["for", "IN"], 
+    ["a", "DT"], ["simple", "JJ"], ["emissions", "NNS"], ["test", "NN"], [".", "."]], 
+    "_": [[2, 5], [9, 10]], 
+    "~": [], 
+    "mwe_readable": "I brought_ my car _in for a simple emissions_test .",
+    "tags_tsv": <TSV encoding where each line is a token>}
+    '''
+    result = tags2sst.process_sentence(words=zip(tokens,poses), 
+                                       lemmas=[tkn.stem for tkn in sentence], 
+                                       tags=[tkn.prediction for tkn in sentence], 
+                                       labels=[tkn.predlabel for tkn in sentence], 
+                                       parents={i+1: (tkn.predparent, tkn.predstrength) for i,tkn in enumerate(sentence) if tkn.predparent>0})
+    result["mwe_readable"] = tags2sst.render(tokens, result["_"], result["~"])
+    result["tags_tsv"] = unicode(sentence)
+    return result
+    
+def predict(args, t, featurized_dataset=None, sentence=None, print_predictions=True):
     
     if args.test_predict is not None or args.test is not None:
         # evaluate (test), and possibly print predictions for that data
         
-        if evalData is None:
-            evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
+        if featurized_dataset is None:
+            featurized_dataset = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                 t._labels, legacy0=args.legacy0,
                                                                                 keep_in_memory=True), 
-                                            t._featureIndexes, cache_features=False)
+                                                      t._featureIndexes, cache_features=False)
         
-        t.decode_dataset(evalData, print_predictions=(args.test_predict is not None), 
+        t.decode_dataset(featurized_dataset, print_predictions=(args.test_predict is not None and print_predictions), 
                          useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
         
-    if args.predict is not None:
+    if args.predict is not None or sentence:
         # predict on a separate dataset
         
-        predData = SupersenseFeaturizer(featureExtractor, SupersenseDataSet(args.predict, 
-                                                                            t._labels, legacy0=args.legacy0, 
-                                                                            keep_in_memory=False,
-                                                                            autoreset=False),   # could be stdin, which should never be reset 
+        if args.predict is not None:
+            dataSet = SupersenseDataSet(args.predict, 
+                                        t._labels, legacy0=args.legacy0, 
+                                        keep_in_memory=False,
+                                        autoreset=False)
+        else:
+            dataSet = [sentence]
+        
+        predData = SupersenseFeaturizer(featureExtractor, dataSet,   # could be stdin, which should never be reset 
                                         t._featureIndexes, cache_features=False)
 
-        t.decode_dataset(predData, print_predictions=True, useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
-        
-        
+        t.decode_dataset(predData, print_predictions=print_predictions, useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
         
         
 
@@ -952,6 +1007,14 @@ def main():
         t.printWeights(sys.stdout)
     else:
         t.tagStandardInput()
+
+def main():
+    '''
+    Parse the given command line arguments, then act accordingly.
+    '''
+    args = opts()
+    evalData = setup(args)
+    predict(args, _tagger_model, featurized_dataset=evalData)
 
 if __name__=='__main__':
     #import cProfile
