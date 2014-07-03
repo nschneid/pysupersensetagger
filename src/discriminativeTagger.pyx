@@ -694,7 +694,8 @@ class DiscriminativeTagger(object):
             
             while True:
                 if instance is None: # signal to print accuracy and reset firstInPass = True
-                    print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
+                    if reportAcc:
+                        print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
                     newStartTime = time.time()
                     print('decoding time:',newStartTime-startTime, file=sys.stderr)
                     firstInPass = True
