@@ -12,9 +12,10 @@ sentID   annotated_sentence   {"words": [[word1,pos1],...], "_": [[offset1,offse
 
 Output is in the tab-separated format:
 
-offset   word   lemma   POS   tag   parent   strength   label   sentId
+offset   word   [lemma]   POS   tag   parent   strength   label   sentId
 
-- lemma will (for now) be left empty
+Options:
+  -l: performs lemmatization. Otherwise, the lemma column will be left empty.
 
 @see: dataFeaturizer.SupersenseTrainSet
 
@@ -26,7 +27,7 @@ import os, sys, re, fileinput, codecs, json
 
 I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
 
-def convert(inF, outF=sys.stdout):
+def convert(inF, outF=sys.stdout, stemmer=None):
     
     for ln in inF:
         sentId, anno, data = ln.strip().split('\t')
@@ -100,8 +101,14 @@ def convert(inF, outF=sys.stdout):
                 assert strength=='~'
                 tag = (i_TILDE if amInGap else I_TILDE)+labelFlag
             
-            print(i+1, w, '', pos, tag.encode('utf-8'), parent, strength, label, sentId, sep='\t', file=outF)
+            lemma = stemmer(w.lower(), pos) if stemmer else ''
+            
+            print(i+1, w, lemma, pos, tag.encode('utf-8'), parent, strength, label, sentId, sep='\t', file=outF)
         print()
 
 if __name__=='__main__':
-    convert(fileinput.input())
+    stem = None
+    if sys.argv[1]=='-l':
+        from morph import stem
+        del sys.argv[1]
+    convert(fileinput.input(), stemmer=stem)
