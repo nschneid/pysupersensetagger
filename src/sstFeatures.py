@@ -182,14 +182,14 @@ assert not set(NOUNTOPS.values())-set(SUPERSENSES),set(NOUNTOPS.values())-set(SU
 
 @memoize
 def supersense(synset):
-    if synset.lexname=='noun.Tops':
-        return NOUNTOPS[synset.name]
-    pos, name = synset.lexname.split('.')
+    if synset.lexname()=='noun.Tops':
+        return NOUNTOPS[synset.name()]
+    pos, name = synset.lexname().split('.')
     if pos=='noun':
         return name.upper()
     elif pos=='verb':
         return name
-    return synset.lexname   # adj.all, adv.all
+    return synset.lexname()   # adj.all, adv.all
 
 
 senseTrie = Trie()  # lemma sequence -> ordered list of supersenses
@@ -460,7 +460,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             if useWNOOV: ff['OOV',sent[j].pos] = 1
             wn_pos_setS = '{}'
         else:
-            wn_pos_set = frozenset({lem.synset.pos.replace('s','a') for lem in wn.lemmas(sent[j].stem)})
+            wn_pos_set = frozenset({lem.synset().pos().replace('s','a') for lem in wn.lemmas(sent[j].stem)})
             wn_pos_setS = '{'+repr(tuple(wn_pos_set))[1:-1]+'}'
         
         # - WordNet supersense (new relative to mweFeatures)
@@ -501,7 +501,7 @@ def extractFeatureValues(sent, j, usePredictedLabels=True, orders={0,1}, indexer
             if lexiconname=='wordnet_mwes':
                 if entry:
                     try:
-                        mw_pos_set = frozenset(wn.lemma(wnlemma).synset.pos.replace('s','a') for wnlemma in entry["wnlemmas"])
+                        mw_pos_set = frozenset(wn.lemma(wnlemma).synset().pos().replace('s','a') for wnlemma in entry["wnlemmas"])
                     except:
                         print(entry, file=sys.stderr)
                         raise
