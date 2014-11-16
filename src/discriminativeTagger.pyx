@@ -407,7 +407,7 @@ class DiscriminativeTagger(object):
         return dotProduct
     
     def _viterbi(self, nLabels, weights, 
-                 includeLossTerm=False, costAugVal=0.0, useBIO=False):
+                 includeLossTerm=False, costAugVal=0.0, useBIO=False, forced=False):
         
         # setup
         MAX_NUM_TOKENS = 200
@@ -445,10 +445,10 @@ class DiscriminativeTagger(object):
             
             METHOD = 'c'   # conventional and/or iterative Viterbi
             if 'c' in METHOD:
-                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, labelScores0, o1FeatWeights, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                c_score, derivation = c_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpBackPointers, labelScores0, o1FeatWeights, self._labels, self._featureIndexes, includeLossTerm, costAugVal, useBIO, forced)
                 c_preds = [x.prediction for x in sent]
             if 'i' in METHOD:
-                i_score, derivation = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO)
+                i_score, derivation = i_viterbi(sent, o0Feats, featureExtractor, weights, dpValuesFwd, dpValuesBwd, dpBackPointers, o0Scores, o1FeatWeights, self._labels, self._freqSortedLabelIndices, self._featureIndexes, includeLossTerm, costAugVal, useBIO, forced)
                 i_preds = [x.prediction for x in sent]
             if 'c' in METHOD and 'i' in METHOD: # check that results match
                 print(c_score,c_preds)
@@ -463,7 +463,8 @@ class DiscriminativeTagger(object):
 
     def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, 
               tuningData=None, earlyStopInterval=None, earlyStopDelay=0, 
-              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, gammaUpdate=None and 'adagrad'):
+              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, gammaUpdate=None and 'adagrad',
+              lv=False):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         assert maxIters>0,maxIters
         assert earlyStopInterval is None or tuningData is not None
@@ -497,7 +498,8 @@ class DiscriminativeTagger(object):
         
         # training iterations: calls decode()
         for i,weights in enumerate(self.learn(trainingData, maxTrainIters=maxIters, averaging=averaging, 
-                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma, sumsqgrads=sumsqgrads)):
+                                               useBIO=useBIO, includeLossTerm=includeLossTerm, costAugVal=costAugVal, gamma=gamma, sumsqgrads=sumsqgrads, 
+                                               lv=lv)):
             
             # store the new weights in an attribute
             self._weights = weights
@@ -519,7 +521,7 @@ class DiscriminativeTagger(object):
                 totCost = nCorrect = nTuning = 0
                 for sent,o0Feats in tuningData:
                     nCorrect += sum(1 for tok in sent if tok.gold==tok.prediction)
-                    totCost += sum(1+(costAugVal if (tok.gold=='O' or tok.gold=='o') else 0) for tok in sent if tok.gold!=tok.prediction)
+                    totCost += sum(1+(costAugVal if (tok.gold=='O' or tok.gold=='o') else 0) for tok in sent if tok.gold is not None and tok.gold!=tok.prediction)
                     nTuning += len(sent)
                 if prevNCorrect is not None:
                     # use accuracy or cost as criterion
@@ -547,7 +549,7 @@ class DiscriminativeTagger(object):
             self.saveModel(savePrefix)
     
     
-    def learn(self, data, maxTrainIters, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None):
+    def learn(self, data, maxTrainIters, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None, lv=False):
         '''Decode a dataset under a model. Predictions are stored in the sentence within the call to _viterbi(). 
         If maxTrainIters is positive, update the weights. 
         After each iteration, the weights are yielded.'''
@@ -605,8 +607,12 @@ class DiscriminativeTagger(object):
         decoder = self.decode(nLabels, currentWeights, 
                               includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
                               useBIO=useBIO)    # per-sentence decoder (persists across iterations)
-        
         o1FeatWeights = decoder.next()
+        if lv:
+            lvdecoder = self.decode(nLabels, currentWeights, 
+                              includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
+                              useBIO=useBIO, forced=True)    # for decoding the latent variables given gold
+            o1FeatWeights2 = lvdecoder.next()    # get the generator warmed up
         
         for numIters in range(max(1,maxTrainIters)):
             print('iter = ',numIters, file=sys.stderr)
@@ -616,10 +622,19 @@ class DiscriminativeTagger(object):
             nWeightUpdates = 0
             
             for isent,(sent,o0Feats) in enumerate(data): # to limit the number of instances, see _createFeatures()
+                actualGolds = sent.golds
+                preds = None
                 sent,predDerivation = decoder.send((sent,o0Feats))    # Viterbi decode this instance
-                goldDerivation = [((i,), o0Feats[i]) for i in range(len(sent))]
-                if featureExtractor.hasFirstOrderFeatures():
-                    goldDerivation.extend([((i-1,i), {self._featureIndexes['prevLabel=',sent[i-1].gold]: 1}) for i in range(1,len(sent))])
+                
+                if lv and any(tg is None for tg in actualGolds):
+                    preds = sent.predictions
+                    sent,goldDerivation = lvdecoder.send((sent,o0Feats))    # clamp the gold labels and Viterbi decode the latent variables
+                    sent.golds = sent.predictions # mixture of actual gold labels and best guess at latent variables
+                    sent.predictions = preds  # totally predicted
+                else:
+                    goldDerivation = [((i,), o0Feats[i]) for i in range(len(sent))]
+                    if featureExtractor.hasFirstOrderFeatures():
+                        goldDerivation.extend([((i-1,i), {self._featureIndexes['prevLabel=',sent[i-1].gold]: 1}) for i in range(1,len(sent))])
                 #print(sent, file=sys.stderr)
                 #print(o0Feats, file=sys.stderr)
                 #print(predDerivation, file=sys.stderr)
@@ -629,6 +644,10 @@ class DiscriminativeTagger(object):
                 nWeightUpdates += self._perceptronUpdate(sent, goldDerivation, predDerivation, currentWeights, totalInstancesProcessed+1, avgWeightDeltas, learningRate=gamma_current, sumsqgrads=sumsqgrads)
                 # will update currentWeights as well as distance to running average in avgWeightDeltas
                 o1FeatWeights[:,:,:] = float('inf') # clear the bigram feature weights cache (they will be recomputed the next time we decode)
+                
+                if lv and preds:
+                    o1FeatWeights2[:,:,:] = float('inf') # clear the bigram feature weights cache
+                    sent.golds = actualGolds  # restore actual gold labels in 'sent'
                 
                 totalInstancesProcessed += 1
             
@@ -656,7 +675,7 @@ class DiscriminativeTagger(object):
         # really just a formality, I think
         decoder.close()
         
-    def decode(self, nLabels, currentWeights, includeLossTerm, costAugVal, useBIO):
+    def decode(self, nLabels, currentWeights, includeLossTerm, costAugVal, useBIO, forced=False):
         '''
         Coroutine that decodes an instance (by calling _viterbi()), maintaining 
         summary statistics over all instances decoded and printing them periodically 
@@ -675,8 +694,10 @@ class DiscriminativeTagger(object):
         # tabulate accuracy at every 500 iterations
         nWordsProcessed = 0
         nWordsIncorrect = 0
+        nWordsUnknown = 0   # missing gold tag
         totalWordsProcessed = 0
         totalWordsIncorrect = 0
+        totalWordsUnknown = 0
         totalInstancesProcessed = 0
         
         firstInPass = True
@@ -685,7 +706,7 @@ class DiscriminativeTagger(object):
         
         decoder = self._viterbi(nLabels, currentWeights, 
                               includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
-                              useBIO=useBIO)
+                              useBIO=useBIO, forced=forced)
         
         o1FeatWeights = decoder.next()
         
@@ -694,8 +715,11 @@ class DiscriminativeTagger(object):
             
             while True:
                 if instance is None: # signal to print accuracy and reset firstInPass = True
-                    if reportAcc:
-                        print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
+                    if reportAcc and totalWordsUnknown<totalWordsProcessed:
+                        if totalWordsUnknown>0:
+                            print('word accuracy over {} words in {} instances (excluding {} unknown): {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, totalWordsUnknown, (totalWordsProcessed-totalWordsIncorrect-totalWordsUnknown)/(totalWordsProcessed-totalWordsUnknown)), file=sys.stderr)
+                        else:
+                            print('word accuracy over {} words in {} instances: {:.2%}'.format(totalWordsProcessed, totalInstancesProcessed, (totalWordsProcessed-totalWordsIncorrect)/totalWordsProcessed), file=sys.stderr)
                     newStartTime = time.time()
                     print('decoding time:',newStartTime-startTime, file=sys.stderr)
                     firstInPass = True
@@ -710,9 +734,9 @@ class DiscriminativeTagger(object):
                 if reportAcc:
                     for i in range(len(sent)):
                         if sent[i].gold is None:
-                            reportAcc = False
-                            break
-                        if sent[i].gold != sent[i].prediction:
+                            nWordsUnknown += 1
+                            totalWordsUnknown += 1
+                        elif sent[i].gold != sent[i].prediction:
                             nWordsIncorrect += 1
                             totalWordsIncorrect += 1
                 nWordsProcessed += len(sent)
@@ -726,9 +750,12 @@ class DiscriminativeTagger(object):
                 
                 if totalInstancesProcessed%100==0:
                     print('totalInstancesProcessed = ',totalInstancesProcessed, file=sys.stderr)
-                    if reportAcc:
-                        print('word accuracy in last 100 instances: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
-                    nWordsIncorrect = nWordsProcessed = 0
+                    if reportAcc and nWordsUnknown<nWordsProcessed:
+                        if nWordsUnknown>0:
+                            print('word accuracy in last 100 instances (excluding {} unknown): {:.2%}'.format(nWordsUnknown, (nWordsProcessed-nWordsIncorrect-nWordsUnknown)/(nWordsProcessed-nWordsUnknown)), file=sys.stderr)
+                        else:
+                            print('word accuracy in last 100 instances: {:.2%}'.format((nWordsProcessed-nWordsIncorrect)/nWordsProcessed), file=sys.stderr)
+                    nWordsIncorrect = nWordsProcessed = nWordsUnknown = 0
                 elif totalInstancesProcessed%10==0:
                     print('.', file=sys.stderr, end='')
                 
@@ -840,6 +867,8 @@ def opts(actual_args=None):
     flag("predict", "Path to data on which to make predictions (following training, if applicable); predictions will be written to stdout (following --test-predict predictions, if both flags are specified). (The data need not have gold labels.)")
     #inflag
     
+    boolflag("lv", "Allow training instances with missing tags (treat them as latent variables)")
+    
     # formerly only allowed in properties file
     flag("bio", "Constrain label bigrams in decoding such that the 'O' label is never followed by a label beginning with 'I'", nargs='?', const=True, default=False, choices={'NO_SINGLETON_B'})
     boolflag("legacy0", "BIO scheme uses '0' instead of 'O'")
@@ -914,12 +943,16 @@ def setup(args):
         print('training model from',args.train,'...', file=sys.stderr)
         
         if not args.disk:
-            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train, t._labels, 
+                                                                                     legacy0=args.legacy0, 
+                                                                                     allow_missing_tags=args.lv), 
+                                                t._featureIndexes, cache_features=False)
             if args.test_predict is not None or args.test is not None:
                 # keep labeled test data in memory so it can be used for early stopping (tuning)
                 evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                     t._labels, legacy0=args.legacy0,
-                                                                                    keep_in_memory=True), 
+                                                                                    keep_in_memory=True,
+                                                                                    allow_missing_tags=args.lv), 
                                                 t._featureIndexes, cache_features=False)
                 
             t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
@@ -927,7 +960,8 @@ def setup(args):
                     earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
                     tuningData=evalData,
                     developmentMode=args.debug, 
-                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None)
+                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None,
+                    lv=args.lv)
             
             del trainingData
         else:
@@ -979,7 +1013,8 @@ def predict(args, t, featurized_dataset=None, sentence=None, print_predictions=T
         if featurized_dataset is None:
             featurized_dataset = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                 t._labels, legacy0=args.legacy0,
-                                                                                keep_in_memory=True), 
+                                                                                keep_in_memory=True,
+                                                                                allow_missing_tags=args.lv), 
                                                       t._featureIndexes, cache_features=False)
         
         t.decode_dataset(featurized_dataset, print_predictions=(args.test_predict is not None and print_predictions), 

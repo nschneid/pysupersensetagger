@@ -66,13 +66,17 @@ class LabeledSentence(list):
     def predictionsAreCorrect(self):
         return all(x.gold == x.prediction for x in self)
     
-    def updatedPredictions(self):
+    def updatedPredictions(self, forced=False):
         '''Called once every token has a value for .prediction; 
            sets .predstrength, .predlabel, and .predparent accordingly. 
-           Note that .predparent is 0 if no parent and a positive offset otherwise.'''
+           Note that .predparent is 0 if no parent and a positive offset otherwise.
+           If forced is True, ensure that wherever a gold tag is present, the prediction matches.'''
         curOuterMWE = None
         curInnerMWE = None
         for i,tok in enumerate(self):
+            if forced and tok.gold is not None:
+                assert tok.prediction==tok.gold, (self.sentId, i, tok.gold, tok.prediction)
+            
             if '-' in tok.prediction:
                 predPosition = tok.prediction[:tok.prediction.index('-')]
                 predLbl = tok.prediction[tok.prediction.index('-')+1:]
@@ -124,6 +128,29 @@ class LabeledSentence(list):
     @mostFrequentSenses.setter
     def mostFrequentSenses(self, val):
         self._mostFrequentSenses = val
+
+    @property
+    def golds(self):
+        return tuple(tok.gold for tok in self)
+    @golds.setter
+    def golds(self, vals):
+        assert len(self)==len(vals)
+        for i,(tok,v) in enumerate(zip(self,vals)):
+            if tok.gold!=v:
+                self[i] = tok._replace(gold=v)
+        # TODO: do we need a self.updatedGolds()??
+    
+    @property
+    def predictions(self):
+        return tuple(tok.prediction for tok in self)
+
+    @predictions.setter
+    def predictions(self, vals):
+        assert len(self)==len(vals)
+        for i,(tok,v) in enumerate(zip(self,vals)):
+            if tok.prediction!=v:
+                self[i] = tok._replace(prediction=v)
+        self.updatedPredictions()
 
     def __str__(self):
         '''offset   word   lemma   POS   tag   parent   strength   label   sentID'''

@@ -22,12 +22,13 @@ class DataSet(object):
         return 
 
 class SupersenseDataSet(DataSet):
-    def __init__(self, path, labels, legacy0, keep_in_memory=True, autoreset=True):
+    def __init__(self, path, labels, legacy0, keep_in_memory=True, autoreset=True, allow_missing_tags=True):
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
         self._legacy0 = legacy0
         self._autoreset = autoreset
+        self._allow_missing_tags = allow_missing_tags
         self.open_file()
     
     def close_file(self):
@@ -52,6 +53,8 @@ class SupersenseDataSet(DataSet):
         parts = ln[:-1].split('\t')[:4]
         if len(parts)==4:
             token, pos, tag, sentId = parts
+            if not tag.strip():
+                tag = None
             sent.sentId = sentId
         elif len(parts)==3:
             token, pos, tag = parts
@@ -137,6 +140,10 @@ class SupersenseTrainSet(SupersenseDataSet):
         assert len(sent)+1==offset
         assert parent<offset
         
+        if not tag.strip():
+            if not self._allow_missing_tags:
+                raise Exception('All training set tokens required to have a tag:\n'+ln)
+            tag = None
         
         if tag is not None:
             if tag=='0' and self._legacy0:

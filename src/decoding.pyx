@@ -4,7 +4,7 @@
 Viterbi, scoring implementations. Called from DiscriminativeTagger.decode().
 '''
 from __future__ import print_function, division
-import operator
+import operator, sys
 from numbers import Number
 
 #cimport cython
@@ -81,10 +81,11 @@ def legalTagBigram(lbl1, lbl2, useBIO=False, requireClassMatch=False):
 cdef c_viterbi(sent, o0Feats, featureExtractor, weights, 
               float[:, :] dpValues, int[:, :] dpBackPointers, float[:] labelScores0,
               float[:,:,:] o1FeatWeights, 
-              labels, featureIndexes, includeLossTerm=False, float costAugVal=0.0, useBIO=False):
+              labels, featureIndexes, includeLossTerm=False, float costAugVal=0.0, useBIO=False,
+              forced=False):
         '''Uses the Viterbi algorithm to decode, i.e. find the best labels for the sequence 
-        under the current weight vector. Updates the predicted labels in 'sent'. 
-        Used in both training and testing.'''
+        under the current weight vector. If 'forced' is True, any gold labels will be clamped.
+        Updates the predicted labels in 'sent'. Used in both training and testing.'''
         
         indexerSize = len(featureIndexes)
         
@@ -131,8 +132,12 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
                     v = vv(labels[l]) if not isinstance(vv,Number) else vv
                     labelScores0[l] += wt*v
             
-            for l,label in enumerate(labels):
-                
+            candidateLabelsAtI = [(labels.index(sent[i].gold),sent[i].gold)] if forced and sent[i].gold is not None else list(enumerate(labels))
+            if len(candidateLabelsAtI)<len(labels):
+                dpValues[i,:] = NEGINF  # we won't score all labels, so initialize all of them to NEGINF
+            
+            for l,label in candidateLabelsAtI:
+                #print(forced,i,l,label.encode('utf-8'), file=sys.stderr)
                 legalStartStop = int(o1FeatWeights[1,l,0])
                 
                 # initialize stuff
@@ -144,7 +149,7 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
                 score0 = labelScores0[l]
                 
                 # cost-augmented decoding
-                if label!=sent[i].gold:
+                if sent[i].gold is not None and label!=sent[i].gold:
                     if includeLossTerm:
                         score0 += 1.0   # base cost of any error
                     if (label=='O' or label=='o') and (sent[i].gold=='B' or sent[i].gold=='b'):
@@ -162,7 +167,8 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
                     # the beginning/end of the sentence is easily captured with zero-order features.
                 else:
                     # consider each possible previous label
-                    for k,prevLabel in enumerate(labels):
+                    prevLabelCandidates = [(labels.index(sent[i-1].gold),sent[i-1].gold)] if forced and sent[i-1].gold is not None else enumerate(labels)
+                    for k,prevLabel in prevLabelCandidates:
                         if o1FeatWeights[0,l,k]==NEGINF:
                             continue
                         
@@ -209,24 +215,29 @@ cdef c_viterbi(sent, o0Feats, featureExtractor, weights,
         # now proceed backwards, following backpointers
         derivation = []
         for i in range(nTokens)[::-1]:
+            #print('best=',maxIndex,'score(best)=',maxScore,'score(O)=',dpValues[i,labels.index('O')], file=sys.stderr)
             sent[i] = sent[i]._replace(prediction=labels[maxIndex])
             maxIndex = dpBackPointers[i,maxIndex]
+            assert maxIndex>=0
             if hasFOF and i>0:
                 derivation.insert(0, ((i-1,i), {featureIndexes[('prevLabel=',labels[maxIndex])]: 1}))
             derivation.insert(0, ((i,), o0Feats[i]))
-        sent.updatedPredictions()
+        sent.updatedPredictions(forced=forced)
         
         return maxScore, derivation
 
 
 cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights, 
               float[:, :] dpValuesFwd, float[:, :] dpValuesBwd, int[:, :] dpBackPointers, 
-              float[:, :] o0Scores, float[:,:,:] o1FeatWeights, labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False):
+              float[:, :] o0Scores, float[:,:,:] o1FeatWeights, labels, freqSortedLabelIndices, featureIndexes, includeLossTerm=False, costAugVal=0.0, useBIO=False, 
+              forced=False):
         '''Uses the iterative Viterbi algorithm of Kaji et al. 2010 for staggered decoding (cf. Huang et al. 2012). 
         With proper caching and pruning this is much faster than standard Viterbi. 
         Updates the predicted labels in 'sent'. Used in both training and testing.
         (Assertions are commented out for speed.)'''
-                
+        
+        if forced: raise NotImplemented()
+        
         indexerSize = len(featureIndexes)
         
         hasFOF = featureExtractor.hasFirstOrderFeatures()
@@ -297,7 +308,7 @@ cdef i_viterbi(sent, o0Feats, featureExtractor, float[:] weights,
                             else:
                                 score0 = _score(o0FeatureMap, weights, l2, indexerSize)
                                 # cost-augmented decoding
-                                if label!=sent[i].gold:
+                                if sent[i].gold is not None and label!=sent[i].gold:
                                     if includeLossTerm:
                                         score0 += 1.0   # base cost of any error
                                     if (label=='O' or label=='o') and (sent[i].gold=='B' or sent[i].gold=='b'):
