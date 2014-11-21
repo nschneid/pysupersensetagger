@@ -463,7 +463,7 @@ class DiscriminativeTagger(object):
 
     def train(self, trainingData, savePrefix, instanceIndices=None, averaging=False, 
               tuningData=None, earlyStopInterval=None, earlyStopDelay=0, 
-              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, gammaUpdate=None and 'adagrad',
+              maxIters=2, developmentMode=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=[1.0], gammaUpdate=None and 'adagrad',
               lv=False):
         '''Train using the perceptron. See Collins paper on discriminative HMMs.'''
         assert maxIters>0,maxIters
@@ -471,7 +471,7 @@ class DiscriminativeTagger(object):
         print('training with the perceptron for up to',maxIters,'iterations', 
               ('with early stopping by checking the tuning data every {} iterations'.format(abs(earlyStopInterval)) if earlyStopInterval is not None else ''),
               file=sys.stderr)
-        if gamma!=1.0:
+        if gamma!=[1.0]:
             print('gamma (step size) =',gamma, file=sys.stderr)
         if gammaUpdate:
             print('gammaUpdate:',gammaUpdate, file=sys.stderr)
@@ -549,7 +549,7 @@ class DiscriminativeTagger(object):
             self.saveModel(savePrefix)
     
     
-    def learn(self, data, maxTrainIters, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=1.0, sumsqgrads=None, lv=False):
+    def learn(self, data, maxTrainIters, averaging=False, useBIO=False, includeLossTerm=False, costAugVal=0.0, gamma=[1.0], sumsqgrads=None, lv=False):
         '''Decode a dataset under a model. Predictions are stored in the sentence within the call to _viterbi(). 
         If maxTrainIters is positive, update the weights. 
         After each iteration, the weights are yielded.'''
@@ -602,7 +602,6 @@ class DiscriminativeTagger(object):
         totalInstancesProcessed = 0
         
         #gamma_current = 1.0   # current learning rate
-        gamma_current = gamma
         
         decoder = self.decode(nLabels, currentWeights, 
                               includeLossTerm=includeLossTerm, costAugVal=costAugVal, 
@@ -626,12 +625,14 @@ class DiscriminativeTagger(object):
                 preds = None
                 sent,predDerivation = decoder.send((sent,o0Feats))    # Viterbi decode this instance
                 
-                if lv and any(tg is None for tg in actualGolds):
+                if lv and any(tg is None for tg in actualGolds):    # partially labeled instance
+                    gamma_current = gamma[-1]   # may be different from gamma for fully labeled instances
                     preds = sent.predictions
                     sent,goldDerivation = lvdecoder.send((sent,o0Feats))    # clamp the gold labels and Viterbi decode the latent variables
                     sent.golds = sent.predictions # mixture of actual gold labels and best guess at latent variables
                     sent.predictions = preds  # totally predicted
-                else:
+                else:   # fully labeled instance
+                    gamma_current = gamma[0]
                     goldDerivation = [((i,), o0Feats[i]) for i in range(len(sent))]
                     if featureExtractor.hasFirstOrderFeatures():
                         goldDerivation.extend([((i-1,i), {self._featureIndexes['prevLabel=',sent[i-1].gold]: 1}) for i in range(1,len(sent))])
@@ -880,7 +881,8 @@ def opts(actual_args=None):
     flag("excludeFeatures","Comma-separated list of (0-based) column numbers to ignore when reading feature files. (Do not specify column 0; use --no-lex instead.)", default='')
     flag("cutoff", "Threshold (minimum number of occurrences) of a feature for it to be included in the model", ftype=int, default=None)
     #flag("gamma","Base of learning rate (exponent is number of instances seen so far)", ftype=float, default=1.0)
-    flag("gamma","Instance weight/constant learning rate", ftype=float, default=1.0)
+    flag("gamma","Instance weight/constant learning rate. If multiple values are specified, the first is used for fully labeled examples, and the last for partially labeled examples (see --lv).", ftype=float, nargs='+', default=[1.0])
+    
     boolflag("adagrad","Adaptive gradient method (learning rate update)")
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
