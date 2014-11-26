@@ -820,7 +820,8 @@ def opts(actual_args=None):
     def boolflag(name, description, default=False, **kwargs):
         opts.add_argument(('--' if len(name)>1 else '-')+name, action='store_false' if default else 'store_true', help=description, **kwargs)
     
-    flag("train", "Path to training data feature file") #inflag
+    flag("train", "Path to training data file") #inflag
+    flag("extract", "Load data from this file and extract features for each instance, print them to stdout, and exit") #inflag
     flag("max-train-instances", "During training, truncate the data to the specified number of instances", ftype=int)
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
@@ -871,15 +872,15 @@ def opts(actual_args=None):
     
     args = opts.parse_args(actual_args)
     
-    if args.train is None and args.load is None:
-        raise Exception('Missing argument: --train or --load')
+    if args.train is None and args.load is None and args.extract is None:
+        raise Exception('Missing argument: --train or --load or --extract')
     if args.YY is None and args.load is None:
         raise Exception('Missing argument: --YY')
     
     return args
     
 def setup(args):
-    '''Train or load a model.'''
+    '''Train or load a model or extract features for data.'''
     
     global featureExtractor, _args, _tagger_model
     
@@ -894,7 +895,7 @@ def setup(args):
     
     evalData = None
     
-    # load or train a model
+    # load or train a model or extract features
     
     if args.load is not None:
         print('loading model from',args.load,'...', file=sys.stderr)
@@ -911,24 +912,33 @@ def setup(args):
         t._labels = labels  # TODO: "private" access
         #t._labels = ['0', 'B-noun.person', 'I-noun.person']  # TODO: debugging purposes
         
-        print('training model from',args.train,'...', file=sys.stderr)
+        if args.train:
+            print('training model from',args.train,'...', file=sys.stderr)
+        elif args.extract:
+            print('extracting features for',args.extract,'...', file=sys.stderr)
         
         if not args.disk:
-            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
-            if args.test_predict is not None or args.test is not None:
-                # keep labeled test data in memory so it can be used for early stopping (tuning)
-                evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
-                                                                                    t._labels, legacy0=args.legacy0,
-                                                                                    keep_in_memory=True), 
-                                                t._featureIndexes, cache_features=False)
-                
-            t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
-                    earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
-                    earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
-                    tuningData=evalData,
-                    developmentMode=args.debug, 
-                    useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None)
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train or args.extract, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            if args.extract:
+                sys.stdout = codecs.getwriter('utf8')(sys.stdout)
+                status_msg = trainingData.write_features(sys.stdout)
+                print(status_msg, file=sys.stderr)
+            else:
             
+                if args.test_predict is not None or args.test is not None:
+                    # keep labeled test data in memory so it can be used for early stopping (tuning)
+                    evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
+                                                                                        t._labels, legacy0=args.legacy0,
+                                                                                        keep_in_memory=True), 
+                                                    t._featureIndexes, cache_features=False)
+                
+                t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
+                        earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
+                        earlyStopDelay=args.early_stop_delay if (args.test or args.test_predict) else None,
+                        tuningData=evalData,
+                        developmentMode=args.debug, 
+                        useBIO=args.bio, includeLossTerm=args.includeLossTerm, costAugVal=args.costAug, gamma=args.gamma, gammaUpdate='adagrad' if args.adagrad else None)
+                
             del trainingData
         else:
             raise NotImplemented()

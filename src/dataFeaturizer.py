@@ -198,3 +198,16 @@ class SupersenseFeaturizer(object):
     
     def reset(self):
         self._data.reset()
+
+    def write_features(self, outF, format='numeric'):
+        if format!='numeric': raise NotImplementedError('Unsupported format: '+format)
+        nS = nW = 0
+        for sent,o0FeatsEachToken in self:
+            nS += 1
+            for w,o0Feats in zip(sent,o0FeatsEachToken):
+                nW += 1
+                outF.write(w.token+'\t'+w.gold+'\t')
+                outF.write(' '.join('{}:{}'.format(*itm) for itm in sorted(o0Feats.items())))
+                outF.write('\n')
+            outF.write('\n')
+        return 'Wrote features for {} words, {} sentences'.format(nW, nS)
