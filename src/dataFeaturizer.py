@@ -199,7 +199,19 @@ class SupersenseFeaturizer(object):
     def reset(self):
         self._data.reset()
 
+    def write_feature_vocab(self, outF, numbered=True):
+        '''Writes the percept vocabulary to a file, optionally with percept indices.'''
+        n = 0
+        for i,pname in self._featureIndexes.items():
+            n += 1
+            if numbered:
+                outF.write(str(i)+'\t')
+            print(pname, file=outF)
+        return 'Wrote names for {} features'.format(n)
+
     def write_features(self, outF, format='numeric'):
+        '''Writes this dataset to a file in terms of its extracted observation features. 
+        For each token, the word, gold tag, and active zero-order percepts.'''
         if format!='numeric': raise NotImplementedError('Unsupported format: '+format)
         nS = nW = 0
         for sent,o0FeatsEachToken in self:

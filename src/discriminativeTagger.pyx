@@ -821,7 +821,7 @@ def opts(actual_args=None):
         opts.add_argument(('--' if len(name)>1 else '-')+name, action='store_false' if default else 'store_true', help=description, **kwargs)
     
     flag("train", "Path to training data file") #inflag
-    flag("extract", "Load data from this file and extract features for each instance, print them to stdout, and exit") #inflag
+    flag("extract", "Load data from the first file and extract zero-order observation features (percepts) for each instance, write them to the second file, print the percept alphabet to stdout, and exit", nargs=2) #inflag
     flag("max-train-instances", "During training, truncate the data to the specified number of instances", ftype=int)
     boolflag("disk", "Load instances from the feature file in each pass through the training data, rather than keeping the full training data in memory")
     flag("iters", "Number of passes through the training data", ftype=int, default=1)
@@ -915,13 +915,20 @@ def setup(args):
         if args.train:
             print('training model from',args.train,'...', file=sys.stderr)
         elif args.extract:
-            print('extracting features for',args.extract,'...', file=sys.stderr)
+            print('extracting features for',args.extract[0],'into',args.extract[1],'...', file=sys.stderr)
         
         if not args.disk:
-            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train or args.extract, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            if args.extract:
+                inFP, outFeatFP = args.extract
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train or inFP, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
             if args.extract:
                 sys.stdout = codecs.getwriter('utf8')(sys.stdout)
-                status_msg = trainingData.write_features(sys.stdout)
+                # feature activations
+                with codecs.open(outFeatFP, 'w', 'utf-8') as outFeatF:
+                    status_msg = trainingData.write_features(outFeatF)
+                    print(status_msg, file=sys.stderr)
+                # feature vocab: has to happen second, after a pass has been made through the data
+                status_msg = trainingData.write_feature_vocab(sys.stdout)
                 print(status_msg, file=sys.stderr)
             else:
             
