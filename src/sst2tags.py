@@ -6,9 +6,9 @@ and produces a .tags file (one word per line) using the
 OoBbĪĨīĩ encoding. If the sentence cannot be represented in this encoding, 
 some groupings will be removed and a message written to stderr.
 
-Input format (3 columns):
+Input format (3 columns; additional fields may be present in the JSON object but will be ignored):
 
-sentID   annotated_sentence   {"words": [[word1,pos1],...], "_": [[offset1,offset2],...], "~": [[offset1,offset2,offset3],...]}
+sentID   annotated_sentence   {"words": [[word1,pos1],...], "labels": {"offset1": [word1,label1], "offset2": [word2,label2]}, "_": [[offset1,offset2,offset3], "~": [[offset1,offset2,offset3],...]}
 
 Output is in the tab-separated format:
 
