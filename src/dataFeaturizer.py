@@ -156,12 +156,13 @@ class SupersenseTrainSet(SupersenseDataSet):
 
 class SupersenseFeaturizer(object):
     
-    def __init__(self, extractor, dataset, indexes, cache_features=True):
+    def __init__(self, extractor, dataset, indexes, cache_features=True, domain_prefixes=None):
         self._extractor = extractor
         self._data = dataset
         self._featureIndexes = indexes
         self._features = [] if cache_features else None
         # TODO: For now, try caching just the lifted 0-order features.
+        self._domain_prefixes = domain_prefixes
     
     def __iter__(self):
         for j,sent in enumerate(self._data):
@@ -181,6 +182,13 @@ class SupersenseFeaturizer(object):
                     
                     if not o0FeatureMap:
                         raise Exception('No 0-order features found for this token')
+                    
+                    # domain-specific features
+                    baseFeatures = list(o0FeatureMap.named_items())
+                    for pre in self._domain_prefixes or ():
+                        if sent.sentId.startswith(pre):
+                            for f,v in baseFeatures:
+                                o0FeatureMap[(pre,f)] = v
                     
                     o0FeatsEachToken.append(o0FeatureMap)
                     

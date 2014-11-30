@@ -373,7 +373,7 @@ class DiscriminativeTagger(object):
             self._labelC.update([tkn.gold for tkn in sentAndFeats[0]])
             
             if nSent%1000==0:
-                print('.', file=sys.stderr, end='')
+                print('.', nSent, 's', file=sys.stderr)
             elif nSent%100==0:
                 print(',', file=sys.stderr, end='')
         
@@ -483,7 +483,7 @@ class DiscriminativeTagger(object):
         # save features
         if developmentMode and savePrefix is not None:
             # print features before training
-            with open(savePrefix+'.features', 'w') as outF:
+            with codecs.open(savePrefix+'.features', 'w', 'utf-8') as outF:
                 self.printFeatures(outF)
         
         # for best model achieved so far
@@ -769,7 +769,7 @@ class DiscriminativeTagger(object):
         print(len(self._featureIndexes),'lifted features x',len(self._labels),'labels =',len(self._featureIndexes)*len(self._labels),'grounded features', file=out)
         print('labels:',self._labels,'\n', file=out)
         for fname in sorted(self._featureIndexes.strings):
-            print(''.join(fname).encode('utf-8'), file=out)
+            print(fname, file=out)
     
     def saveModel(self, savePrefix):
         import cPickle
@@ -857,6 +857,8 @@ def opts(actual_args=None):
     boolflag("no-lex", "Don't include features for current and context token strings")
     boolflag("no-averaging", "Don't use averaging in perceptron training")
     
+    flag("domains", "Prefixes to be matched against the sentence ID. For each matching prefix, domain-specific copies of all zero-order features are fired.", nargs='+')
+    
     # features
     boolflag("mwe", "Multiword expressions featureset")
     boolflag("no-bigrams", "Disable token bigram features", default=False)
@@ -920,7 +922,7 @@ def setup(args):
         if not args.disk:
             if args.extract:
                 inFP, outFeatFP = args.extract
-            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train or inFP, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False)
+            trainingData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.train or inFP, t._labels, legacy0=args.legacy0), t._featureIndexes, cache_features=False, domain_prefixes=args.domains)
             if args.extract:
                 sys.stdout = codecs.getwriter('utf8')(sys.stdout)
                 # feature activations
@@ -937,7 +939,7 @@ def setup(args):
                     evalData = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                         t._labels, legacy0=args.legacy0,
                                                                                         keep_in_memory=True), 
-                                                    t._featureIndexes, cache_features=False)
+                                                    t._featureIndexes, cache_features=False, domain_prefixes=args.domains)
                 
                 t.train(trainingData, args.save, maxIters=args.iters, instanceIndices=slice(0,args.max_train_instances), averaging=(not args.no_averaging), 
                         earlyStopInterval=args.early_stop if (args.test or args.test_predict) else None, 
@@ -997,7 +999,7 @@ def predict(args, t, featurized_dataset=None, sentence=None, print_predictions=T
             featurized_dataset = SupersenseFeaturizer(featureExtractor, SupersenseTrainSet(args.test_predict or args.test, 
                                                                                 t._labels, legacy0=args.legacy0,
                                                                                 keep_in_memory=True), 
-                                                      t._featureIndexes, cache_features=False)
+                                                      t._featureIndexes, cache_features=False, domain_prefixes=args.domains)
         
         t.decode_dataset(featurized_dataset, print_predictions=(args.test_predict is not None and print_predictions), 
                          useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
@@ -1014,7 +1016,7 @@ def predict(args, t, featurized_dataset=None, sentence=None, print_predictions=T
             dataSet = [sentence]
         
         predData = SupersenseFeaturizer(featureExtractor, dataSet,   # could be stdin, which should never be reset 
-                                        t._featureIndexes, cache_features=False)
+                                        t._featureIndexes, cache_features=False, domain_prefixes=args.domains)
 
         t.decode_dataset(predData, print_predictions=print_predictions, useBIO=args.bio, includeLossTerm=False, costAugVal=0.0)
         
