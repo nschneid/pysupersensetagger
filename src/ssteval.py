@@ -65,6 +65,27 @@ if __name__=='__main__':
         stats['All SSTs']['nGold'] += sum(1 for g in gtags if g and '`' not in g)
         stats['All SSTs']['nPred'] += sum(1 for p in ptags if p and '`' not in p)
         stats['All SSTs']['tp'] += sum(1 for g,p in zip(gtags,ptags) if p and '`' not in p and g==p)
+
+        # noun supersense labels
+        stats['Noun SSTs']['nGold'] += sum(1 for g in gtags if g and g.isupper())
+        stats['Noun SSTs']['nPred'] += sum(1 for p in ptags if p and p.isupper())
+        stats['Noun SSTs']['tp'] += sum(1 for g,p in zip(gtags,ptags) if p and p.isupper() and g==p)
+        
+        # verb supersense labels (not `a)
+        stats['Verb SSTs']['nGold'] += sum(1 for g in gtags if g and g.islower() and '`' not in g)
+        stats['Verb SSTs']['nPred'] += sum(1 for p in ptags if p and p.islower() and '`' not in p)
+        stats['Verb SSTs']['tp'] += sum(1 for g,p in zip(gtags,ptags) if p and p.islower() and '`' not in p and g==p)
+        
+        # preposition supersense labels
+        stats['Prep SSTs']['nGold'] += sum(1 for g in gtags if g and not g.islower() and not g.isupper() and '`' not in g)
+        stats['Prep SSTs']['nPred'] += sum(1 for p in ptags if p and not p.islower() and not p.isupper() and '`' not in p)
+        stats['Prep SSTs']['tp'] += sum(1 for g,p in zip(gtags,ptags) if p and not p.islower() and not p.isupper() and '`' not in p and g==p)
+        
+        # only `a
+        stats['Auxes']['nGold'] += sum(1 for g in gtags if g=='`a')
+        stats['Auxes']['nPred'] += sum(1 for p in ptags if p=='`a')
+        stats['Auxes']['tp'] += sum(1 for g,p in zip(gtags,ptags) if p=='`a' and g==p)
+        
         
         # collapse all supersense labels together
         stats['Any SST']['nGold'] += sum(1 for g in gtags if g and '`' not in g)
@@ -93,15 +114,18 @@ if __name__=='__main__':
     print(stats)
     print(conf)
     
-    print('  Acc  |   P   |   R   |   F   ')
+    print('  Acc  |   P   |   R   |   F   || R: NSST | VSST |  `a  | PSST')
     parts = [(' {:.2%}'.format(float(stats['Exact Tag']['Acc'])),
               '{:>7}'.format(stats['Exact Tag']['Acc'].numeratorS),
               '{:>7}'.format(stats['Exact Tag']['Acc'].denominatorS))]
     parts += [(' {:.2%}'.format(float(stats['All Classes'][x])),
                '{:>7}'.format(stats['All Classes'][x].numeratorS),
                '{:>7}'.format(stats['All Classes'][x].denominatorS)) for x in ('P', 'R')]
-    parts += [(' {:.2%}'.format(float(stats['All Classes']['F'])),
-               '',
-               '')]
+    parts += [(' {:.2%}  '.format(float(stats['All Classes']['F'])),
+               '         ',
+               '         ')]
+    parts += [(' {:.2%}'.format(float(stats[y]['R'])),
+               '{:>7}'.format(stats[y]['R'].numeratorS),
+               '{:>7}'.format(stats[y]['R'].denominatorS)) for y in ('Noun SSTs', 'Verb SSTs', 'Auxes', 'Prep SSTs')]
     for pp in zip(*parts):
         print(' '.join(pp))
