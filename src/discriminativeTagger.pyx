@@ -389,7 +389,7 @@ class DiscriminativeTagger(object):
         # now create the array of feature weights
         nWeights = len(self._labels)*len(self._featureIndexes)
         
-        print(' done with',nSent,'sentences:',len(self._labels),'labels,',len(self._featureIndexes),'lifted features, size',nWeights,'weight vector', file=sys.stderr)
+        print(' done with',nSent+1,'sentences:',len(self._labels),'labels,',len(self._featureIndexes),'lifted features, size',nWeights,'weight vector', file=sys.stderr)
         print('label counts:',self._labelC, file=sys.stderr)
         
         self._freqSortedLabelIndices = list(range(len(self._labels)))
