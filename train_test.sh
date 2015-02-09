@@ -8,7 +8,7 @@
 set -eu
 set -o pipefail
 
-ark=/path/to/ark-tweet-nlp-0.3.2
+ark=ark-tweet-nlp-0.3.2
 
 # - prepare train and test data (automatic POS tags)
 
@@ -41,14 +41,14 @@ for ln in fileinput.input(sys.argv[2]):
 	cut -f2,4,5,9 cmwe/test.tags > cmwe/test.wdposid
 
 	# run POS tagger
-	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/train.wdpos | cut -f1-2 > cmwe/train.syspos.wdpos
-	paste cmwe/train.syspos.wdpos <(cut -f3-4 cmwe/train.wdposid) > cmwe/train.syspos.wdposid
-	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/test.wdpos | cut -f1-2 > cmwe/test.syspos.wdpos
-	paste cmwe/test.syspos.wdpos <(cut -f3-4 cmwe/test.wdposid) > cmwe/test.syspos.wdposid
+	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/train.wdposid | cut -f1-2 > cmwe/train.syspos.wdposid
+	paste cmwe/train.syspos.wdposid <(cut -f3-4 cmwe/train.wdposid) > cmwe/train.syspos.wdposid
+	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/test.wdposid | cut -f1-2 > cmwe/test.syspos.wdposid
+	paste cmwe/test.syspos.wdposid <(cut -f3-4 cmwe/test.wdposid) > cmwe/test.syspos.wdposid
 
 	# incorporate system POS tags
-	paste <(cut -f1-3 cmwe/train.tags) <(cut -f2 cmwe/train.syspos.wdpos) <(cut -f5- cmwe/train.tags) > cmwe/train.syspos.tags
-	paste <(cut -f1-3 cmwe/test.tags) <(cut -f2 cmwe/test.syspos.wdpos) <(cut -f5- cmwe/test.tags) > cmwe/test.syspos.tags
+	paste <(cut -f1-3 cmwe/train.tags) <(cut -f2 cmwe/train.syspos.wdposid) <(cut -f5- cmwe/train.tags) > cmwe/train.syspos.tags
+	paste <(cut -f1-3 cmwe/test.tags) <(cut -f2 cmwe/test.syspos.wdposid) <(cut -f5- cmwe/test.tags) > cmwe/test.syspos.tags
 
 
 
