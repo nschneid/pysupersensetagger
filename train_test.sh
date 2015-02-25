@@ -8,7 +8,7 @@
 set -eu
 set -o pipefail
 
-ark=path/to/ark-tweet-nlp-0.3.2
+ark=/path/to/ark-tweet-nlp-0.3.2
 
 # - prepare train and test data (automatic POS tags)
 
