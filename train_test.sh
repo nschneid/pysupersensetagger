@@ -47,8 +47,8 @@ for ln in fileinput.input(sys.argv[2]):
 	paste cmwe/test.syspos.wdpos <(cut -f3-4 cmwe/test.wdposid) > cmwe/test.syspos.wdposid
 
 	# incorporate system POS tags
-	paste <(cut -f1-3 cmwe/train.tags) <(cut -f2 cmwe/train.syspos.wdposid) <(cut -f5- cmwe/train.tags) > cmwe/train.syspos.tags
-	paste <(cut -f1-3 cmwe/test.tags) <(cut -f2 cmwe/test.syspos.wdposid) <(cut -f5- cmwe/test.tags) > cmwe/test.syspos.tags
+	paste <(cut -f1-3 cmwe/train.tags) <(cut -f2 cmwe/train.syspos.wdpos) <(cut -f5- cmwe/train.tags) > cmwe/train.syspos.tags
+	paste <(cut -f1-3 cmwe/test.tags) <(cut -f2 cmwe/test.syspos.wdpos) <(cut -f5- cmwe/test.tags) > cmwe/test.syspos.tags
 
 
 
