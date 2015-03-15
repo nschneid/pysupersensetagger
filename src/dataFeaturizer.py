@@ -23,6 +23,12 @@ class DataSet(object):
 
 class SupersenseDataSet(DataSet):
     def __init__(self, path, labels, legacy0, keep_in_memory=True, autoreset=True):
+        '''
+        'labels' should contain all valid tags; if a tag is encountered in the data 
+        but is not included in 'labels', it will be replaced with 'O'.
+        'labels' can also be None to mean all labels are acceptable, but this is 
+        not recommended as it will remove an opportunity to catch preprocessing errors.
+        '''
         self._path = path
         self._labels = labels
         self._cache = [] if keep_in_memory else None
@@ -63,7 +69,9 @@ class SupersenseDataSet(DataSet):
         
         
         if tag is not None:
-            if tag=='0' and self._legacy0:
+            if self._labels is None:
+                pass
+            elif tag=='0' and self._legacy0:
                 assert 'O' in self._labels,self._labels
                 tag = 'O'
             elif tag not in self._labels:
@@ -139,7 +147,9 @@ class SupersenseTrainSet(SupersenseDataSet):
         
         
         if tag is not None:
-            if tag=='0' and self._legacy0:
+            if self._labels is None:
+                pass
+            elif tag=='0' and self._legacy0:
                 assert 'O' in self._labels,self._labels
                 tag = 'O'
             elif tag not in self._labels:
