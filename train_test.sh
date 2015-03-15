@@ -41,9 +41,9 @@ for ln in fileinput.input(sys.argv[2]):
 	cut -f2,4,5,9 cmwe/test.tags > cmwe/test.wdposid
 
 	# run POS tagger
-	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/train.wdpos | cut -f1-2 > cmwe/train.syspos.wdpos
+	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/train.wdposid | cut -f1-2 > cmwe/train.syspos.wdpos
 	paste cmwe/train.syspos.wdpos <(cut -f3-4 cmwe/train.wdposid) > cmwe/train.syspos.wdposid
-	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/test.wdpos | cut -f1-2 > cmwe/test.syspos.wdpos
+	$ark/runTagger.sh --input-format conll --output-format conll --model ewtb_pos.model cmwe/test.wdposid | cut -f1-2 > cmwe/test.syspos.wdpos
 	paste cmwe/test.syspos.wdpos <(cut -f3-4 cmwe/test.wdposid) > cmwe/test.syspos.wdposid
 
 	# incorporate system POS tags
