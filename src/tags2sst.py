@@ -14,15 +14,19 @@ Output format (3 columns):
 
 sentID   annotated_sentence   {"words": [[word1,pos1],...], "labels": {"offset1": [word1,label1], "offset2": [word2,label2]}, "lemmas": [lemma1,lemma2,...], "tags": [tag1,tag2,...], "_": [[offset1,offset2],...], "~": [[offset1,offset2,offset3],...]}
 
+With the -l flag, show labels in annotated_sentence. 
+Otherwise, annotated_sentence will only contain the segmentation.
+
 @author: Nathan Schneider (nschneid@cs.cmu.edu)
 @since: 2014-06-07
 '''
 from __future__ import print_function, division
 import os, sys, re, fileinput, codecs, json
+from __builtin__ import True
 
 I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
 
-def render(ww, sgroups, wgroups):
+def render(ww, sgroups, wgroups, labels={}):
     '''
     Converts the given lexical annotation to a string 
     with _ and ~ as weak and strong joiners, respectively.
@@ -35,26 +39,32 @@ def render(ww, sgroups, wgroups):
     Note that indices are 1-based.
     
     >>> ww = ['a','b','c','d','e','f']
-    >>> render(ww, [], [])
-    'a b c d e f'
-    >>> render(ww, [[2,3],[5,6]], [])
-    'a b_c d e_f'
-    >>> render(ww, [[1,2,6],[3,4,5]], [])
-    'a_b_ c_d_e _f'
-    >>> render(ww, [], [[3,4,5]])
-    'a b c~d~e f'
-    >>> render(ww, [], [[3,5]])
-    'a b c~ d ~e f'
-    >>> render(ww, [[2,3],[5,6]], [[2,3,4]])
-    'a b_c~d e_f'
     >>> render(ww, [[2,3],[5,6]], [[1,2,3,5,6]])
-    'a~b_c~ d ~e_f'
-    >>> render(ww, [[2,3],[5,6]], [[1,2,3,4,5,6]])
-    'a~b_c~d~e_f'
-    >>> render(ww, [[2,4],[5,6]], [[2,4,5,6]])
-    'a b_ c _d~e_f'
+    u'a~b_c~ d ~e_f'
+    >>> render(ww, [], [], {3: 'C', 6: 'FFF'})
+    u'a b c|C d e f|FFF'
+    >>> render(ww, [[2,3],[5,6]], [], {2: 'BC', 5: 'EF'})
+    u'a b_c|BC d e_f|EF'
+    >>> render(ww, [[1,2,6],[3,4,5]], [], {1: 'ABF'})
+    u'a_b_ c_d_e _f|ABF'
+    >>> render(ww, [[1,2,6],[3,4,5]], [], {1: 'ABF', 3: 'CDE'})
+    u'a_b_ c_d_e|CDE _f|ABF'
+    >>> render(ww, [], [[3,4,5]], {4: 'D', 5: 'E', 6: 'F'})
+    u'a b c~d|D~e|E f|F'
+    >>> render(ww, [], [[3,5]])
+    u'a b c~ d ~e f'
+    >>> render(ww, [[2,3],[5,6]], [[2,3,4]], {4: 'D'})
+    u'a b_c~d|D e_f'
+    >>> render(ww, [[2,3],[5,6]], [[1,2,3,5,6]])
+    u'a~b_c~ d ~e_f'
+    >>> render(ww, [[2,3],[5,6]], [[1,2,3,4,5,6]], {1: 'A', 2: 'BC', 4: 'D', 5: 'EF'})
+    u'a|A~b_c|BC~d|D~e_f|EF'
+    >>> render(ww, [[2,4],[5,6]], [[2,4,5,6]], {2: 'BD', 3: 'C'})
+    u'a b_ c|C _d|BD~e_f'
     '''
+    singletonlabels = dict(labels)  # will be winnowed down to the labels not covered by a strong MWE
     before = [None]*len(ww)   # None by default; remaining None's will be converted to empty strings
+    labelafter = ['']*len(ww)
     after = [None]*len(ww)   # None by default; remaining None's will be converted to spaces
     for group in sgroups:
         g = sorted(group)
@@ -67,6 +77,12 @@ def render(ww, sgroups, wgroups):
                 before[i] = ' '
                 before[j-1] = '_'
                 after[j-2] = ' '
+        if g[0] in labels:
+            labelafter[g[-1]-1] = '|'+labels[g[0]]
+            del singletonlabels[g[0]]
+    for i,lbl in singletonlabels.items():
+        assert i-1 not in labelafter
+        labelafter[i-1] = '|'+lbl
     for group in wgroups:
         g = sorted(group)
         for i,j in zip(g[:-1],g[1:]):
@@ -84,7 +100,7 @@ def render(ww, sgroups, wgroups):
     
     after = ['' if x is None else x for x in after]
     before = [' ' if x is None else x for x in before]
-    return u''.join(sum(zip(before,ww,after), ())).strip()
+    return u''.join(sum(zip(before,ww,labelafter,after), ())).strip()
 
 def process_sentence(words, lemmas, tags, labels, parents, sentId=None):
     # form groups
@@ -135,7 +151,7 @@ def process_sentence(words, lemmas, tags, labels, parents, sentId=None):
     
     return data
 
-def convert(inF, outF=sys.stdout):
+def convert(inF, outF=sys.stdout, labelsInRenderedAnno=False):
     def readsent():
         words = []
         lemmas = []
@@ -165,7 +181,10 @@ def convert(inF, outF=sys.stdout):
         
         data = process_sentence(words, lemmas, tags, labels, parents, sentId=sentId)
         
-        print(sentId, render(zip(*words)[0], data["_"], data["~"]), json.dumps(data), sep='\t', file=outF)
+        print(sentId, 
+              render(zip(*words)[0], data["_"], data["~"], 
+                     ({int(k): v[1] for k,v in data["labels"].items()} if labelsInRenderedAnno else {})), 
+              json.dumps(data), sep='\t', file=outF)
     
     while True:
         try:
@@ -175,7 +194,13 @@ def convert(inF, outF=sys.stdout):
         
 
 if __name__=='__main__':
-    convert(fileinput.input())
+    args = sys.argv[1:]
+    if args and args[0]=='-l':
+        labelsInRenderedAnno = True
+        args = args[1:]
+    else:
+        labelsInRenderedAnno = False
+    convert(fileinput.input(args), labelsInRenderedAnno=labelsInRenderedAnno)
     #import doctest
     #doctest.testmod()
 
