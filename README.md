@@ -19,7 +19,7 @@ More generally, the codebase supports supervised discriminative learning and str
 Obtaining the code
 ------------------
 
-To run this software you will need to [download the source code](http://www.ark.cs.cmu.edu/download.php?url=https://github.com/nschneid/pysupersensetagger/archive/v1.0.zip) (no binaries are available).
+To run this software you will need to [download the source code](http://www.ark.cs.cmu.edu/download.php?url=https://github.com/nschneid/pysupersensetagger/archive/v2.0.zip) (no binaries are available).
 The code will automatically be compiled from source when it is first run. 
 
 The latest development version can also be obtained via from GitHub (see [Contributing](#contributing)).
