@@ -21,14 +21,12 @@ Otherwise, annotated_sentence will only contain the segmentation.
 @since: 2014-06-07
 '''
 from __future__ import print_function, division
-import os, sys, re, fileinput, codecs, json
+import sys, fileinput, json
 from __builtin__ import True
-
-I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
 
 def render(ww, sgroups, wgroups, labels={}):
     '''
-    Converts the given lexical annotation to a string 
+    Converts the given lexical annotation to a UTF-8 string 
     with _ and ~ as weak and strong joiners, respectively.
     Assumes this can be done straightforwardly (no nested gaps, 
     no weak expressions involving words both inside and outside 
@@ -40,27 +38,27 @@ def render(ww, sgroups, wgroups, labels={}):
     
     >>> ww = ['a','b','c','d','e','f']
     >>> render(ww, [[2,3],[5,6]], [[1,2,3,5,6]])
-    u'a~b_c~ d ~e_f'
+    'a~b_c~ d ~e_f'
     >>> render(ww, [], [], {3: 'C', 6: 'FFF'})
-    u'a b c|C d e f|FFF'
+    'a b c|C d e f|FFF'
     >>> render(ww, [[2,3],[5,6]], [], {2: 'BC', 5: 'EF'})
-    u'a b_c|BC d e_f|EF'
+    'a b_c|BC d e_f|EF'
     >>> render(ww, [[1,2,6],[3,4,5]], [], {1: 'ABF'})
-    u'a_b_ c_d_e _f|ABF'
+    'a_b_ c_d_e _f|ABF'
     >>> render(ww, [[1,2,6],[3,4,5]], [], {1: 'ABF', 3: 'CDE'})
-    u'a_b_ c_d_e|CDE _f|ABF'
+    'a_b_ c_d_e|CDE _f|ABF'
     >>> render(ww, [], [[3,4,5]], {4: 'D', 5: 'E', 6: 'F'})
-    u'a b c~d|D~e|E f|F'
+    'a b c~d|D~e|E f|F'
     >>> render(ww, [], [[3,5]])
-    u'a b c~ d ~e f'
+    'a b c~ d ~e f'
     >>> render(ww, [[2,3],[5,6]], [[2,3,4]], {4: 'D'})
-    u'a b_c~d|D e_f'
+    'a b_c~d|D e_f'
     >>> render(ww, [[2,3],[5,6]], [[1,2,3,5,6]])
-    u'a~b_c~ d ~e_f'
+    'a~b_c~ d ~e_f'
     >>> render(ww, [[2,3],[5,6]], [[1,2,3,4,5,6]], {1: 'A', 2: 'BC', 4: 'D', 5: 'EF'})
-    u'a|A~b_c|BC~d|D~e_f|EF'
+    'a|A~b_c|BC~d|D~e_f|EF'
     >>> render(ww, [[2,4],[5,6]], [[2,4,5,6]], {2: 'BD', 3: 'C'})
-    u'a b_ c|C _d|BD~e_f'
+    'a b_ c|C _d|BD~e_f'
     '''
     singletonlabels = dict(labels)  # will be winnowed down to the labels not covered by a strong MWE
     before = [None]*len(ww)   # None by default; remaining None's will be converted to empty strings
@@ -100,7 +98,7 @@ def render(ww, sgroups, wgroups, labels={}):
     
     after = ['' if x is None else x for x in after]
     before = [' ' if x is None else x for x in before]
-    return u''.join(sum(zip(before,ww,labelafter,after), ())).strip()
+    return u''.join(sum(zip(before,ww,labelafter,after), ())).strip().encode('utf-8')
 
 def process_sentence(words, lemmas, tags, labels, parents, sentId=None):
     # form groups
@@ -164,7 +162,7 @@ def convert(inF, outF=sys.stdout, labelsInRenderedAnno=False):
                 if not words: continue
                 break
                     
-            parts = ln[:-1].split('\t')
+            parts = ln[:-1].decode('utf-8').split('\t')
             if len(parts)==9:
                 offset, word, lemma, POS, tag, parent, strength, label, sentId = parts
             else:

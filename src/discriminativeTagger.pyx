@@ -986,7 +986,7 @@ def analyze(tokens, poses):
                                        tags=[tkn.prediction for tkn in sentence], 
                                        labels=[tkn.predlabel for tkn in sentence], 
                                        parents={i+1: (tkn.predparent, tkn.predstrength) for i,tkn in enumerate(sentence) if tkn.predparent>0})
-    result["mwe_readable"] = tags2sst.render(tokens, result["_"], result["~"])
+    result["mwe_readable"] = tags2sst.render(tokens, result["_"], result["~"]).decode('utf-8')
     result["tags_tsv"] = unicode(sentence)
     return result
     

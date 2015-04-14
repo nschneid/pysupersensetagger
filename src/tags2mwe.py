@@ -18,13 +18,11 @@ sentID   annotated_sentence   {"words": [[word1,pos1],...], "lemmas": [lemma1,le
 @since: 2014-03-31
 '''
 from __future__ import print_function, division
-import os, sys, re, fileinput, codecs, json
-
-I_BAR, I_TILDE, i_BAR, i_TILDE = 'ĪĨīĩ'.decode('utf-8')
+import sys, fileinput, json
 
 def render(ww, sgroups, wgroups):
     '''
-    Converts the given lexical annotation to a string 
+    Converts the given lexical annotation to a UTF-8 string 
     with _ and ~ as weak and strong joiners, respectively.
     Assumes this can be done straightforwardly (no nested gaps, 
     no weak expressions involving words both inside and outside 
@@ -84,7 +82,7 @@ def render(ww, sgroups, wgroups):
     
     after = ['' if x is None else x for x in after]
     before = [' ' if x is None else x for x in before]
-    return u''.join(sum(zip(before,ww,after), ())).strip()
+    return u''.join(sum(zip(before,ww,after), ())).strip().encode('utf-8')
 
 def process_sentence(words, lemmas, tags, labels, parents, sentId=None):
     # form groups
@@ -148,7 +146,7 @@ def convert(inF, outF=sys.stdout):
                 if not words: continue
                 break
                     
-            parts = ln[:-1].split('\t')
+            parts = ln[:-1].decode('utf-8').split('\t')
             if len(parts)==9:
                 offset, word, lemma, POS, tag, parent, strength, label, sentId = parts
             else:
