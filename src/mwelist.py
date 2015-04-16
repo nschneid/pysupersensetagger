@@ -22,7 +22,8 @@ import os, sys, re, fileinput, codecs, json
 def mwe_lemma_counts(inF, outF=sys.stdout, individual=False):
     result = Counter()
     for ln in inF:
-        sentId, anno, data = ln.strip().split('\t')
+        if not ln.strip(): continue
+        sentId, anno, data = ln[:-1].split('\t')
         data = json.loads(data)
         for sg in data["_"]:
             key = (u' '.join(data["lemmas"][i-1] for i in sg),"_")
