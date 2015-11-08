@@ -111,6 +111,26 @@ def require_valid_tagging(tagging, kind='tagging'):
     if ex1:
         raise ex1
 
+
+def form_groups(links):
+        """
+        >>> form_groups([(1, 2), (3, 4), (2, 5), (6, 8), (4, 7)])==[{1,2,5},{3,4,7},{6,8}]
+        True
+        """
+        groups = []
+        groupMap = {} # offset -> group containing that offset
+        for a,b in links:
+            assert a is not None and b is not None,links
+            assert b not in groups,'Links not sorted left-to-right: '+repr((a,b))
+            if a not in groupMap: # start a new group
+                groups.append({a})
+                groupMap[a] = groups[-1]
+            assert b not in groupMap[a],'Redunant link?: '+repr((a,b))
+            groupMap[a].add(b)
+            groupMap[b] = groupMap[a]
+        return groups
+
+
 goldmwetypes, predmwetypes = Counter(), Counter()
 
 def eval_sent(sent, poses, genstats, sstats, wstats, bypos, indata=None, default_strength=None and '_' and '~'):
@@ -188,16 +208,6 @@ def eval_sent(sent, poses, genstats, sstats, wstats, bypos, indata=None, default
             p_last_bi = i
         elif predTag=='b':
             p_last_bi = i
-        
-    def form_groups(links):
-        groups = []
-        for a,b in links:
-            assert a is not None and b is not None,links
-            if not groups or a not in groups[-1]:
-                groups.append({a,b})
-            else:
-                groups[-1].add(b)
-        return groups
     
     assert all(s for a,b,s in glinks) and all(s for a,b,s in plinks),"Specify --default-strength if plain 'I' or 'i' tags occur in input"
     
