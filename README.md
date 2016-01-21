@@ -11,7 +11,7 @@ the analysis
 I do|`a n't think|cognition he 's|stative afraid to take_a_ strong _stand|cognition on gun_control|ARTIFACT , what_with his upbringing|ATTRIBUTE in El_Paso|LOCATION .
 ```
 
-will be predicted, grouping "take a stand", "gun control", "what with", and "El Paso" as MWEs and labeling several lexical expressions with supersenses (UPPERCASE for nouns, lowercase for verbs). The model and algorithms implemented in the tool are described in Schneider et al. (*TACL* 2014, NAACL-HLT 2015), and resources required to use it are available at http://www.ark.cs.cmu.edu/LexSem/.
+will be predicted, grouping "take a stand", "gun control", "what with", and "El Paso" as MWEs and labeling several lexical expressions with supersenses (UPPERCASE for nouns, lowercase for verbs). The model and algorithms implemented in the tool are described in Schneider et al. (*TACL* 2014, NAACL-HLT 2015), and resources required to use it are available at http://www.cs.cmu.edu/~ark/LexSem/.
 
 More generally, the codebase supports supervised discriminative learning and structured prediction of statistical sequence models over discrete data, i.e., taggers. It implements the structured perceptron (Collins, EMNLP 2002) for learning and the Viterbi algorithm for decoding. Cython is used to make decoding reasonably fast, even with millions of features. The software is released under the GPLv3 license (see LICENSE file).
 
@@ -19,7 +19,7 @@ More generally, the codebase supports supervised discriminative learning and str
 Obtaining the code
 ------------------
 
-To run this software you will need to [download the source code](http://www.ark.cs.cmu.edu/download.php?url=https://github.com/nschneid/pysupersensetagger/archive/v2.0.zip) (no binaries are available).
+To run this software you will need to [download the source code](https://github.com/nschneid/pysupersensetagger/archive/master.zip) (no binaries are available).
 The code will automatically be compiled from source when it is first run. 
 
 The latest development version can also be obtained via from GitHub (see [Contributing](#contributing)).
@@ -39,23 +39,23 @@ It has *not* been tested on Windows.
   - Cython (tested on 0.19.1)
   - NLTK 3.0.2+ with the WordNet resource installed
 
-The input must be sentence and word tokenized and part-of-speech tagged (with the Penn Treebank POS tagset). To obtain automatic POS tags for tokenized text, we recommend the TurboTagger module within [TurboParser](http://www.ark.cs.cmu.edu/TurboParser/) or the [TweetNLP Tagger](http://www.ark.cs.cmu.edu/TweetNLP/).
+The input must be sentence and word tokenized and part-of-speech tagged (with the Penn Treebank POS tagset). To obtain automatic POS tags for tokenized text, we recommend the TurboTagger module within [TurboParser](http://www.cs.cmu.edu/~ark/TurboParser/) or the [TweetNLP Tagger](http://www.cs.cmu.edu/~ark/TweetNLP/).
 
 ### Data
 
 #### Lexicons and Word Clusters
 
-Features in AMALGrAM's tagging model make use of several MWE lists extracted from existing English lexicons, as well as word clusters from a corpus of Yelp reviews. These are available as a separate download at http://www.ark.cs.cmu.edu/LexSem/.
+Features in AMALGrAM's tagging model make use of several MWE lists extracted from existing English lexicons, as well as word clusters from a corpus of Yelp reviews. These are available as a separate download at http://www.cs.cmu.edu/~ark/LexSem/.
 
 #### Corpus
 
-The sentences in the annotated dataset that was used to train and evaluate AMALGrAM come from the English Web Treebank (EWTB), which is distributed by LDC. With permission from LDC and Google, the STREUSLE download at http://www.ark.cs.cmu.edu/LexSem/ includes the source sentences and gold POS tags, but not the parse trees, from EWTB. The parse trees were not used in the lexical semantic annotation or in training the AMALGrAM tagger.
+The sentences in the annotated dataset that was used to train and evaluate AMALGrAM come from the English Web Treebank (EWTB), which is distributed by LDC. With permission from LDC and Google, the STREUSLE download at http://www.cs.cmu.edu/~ark/LexSem/ includes the source sentences and gold POS tags, but not the parse trees, from EWTB. The parse trees were not used in the lexical semantic annotation or in training the AMALGrAM tagger.
 
 
 Installation Instructions
 -------------------------
 
-The necessary lexical semantic resources and software are linked from http://www.ark.cs.cmu.edu/LexSem/.
+The necessary lexical semantic resources and software are linked from http://www.cs.cmu.edu/~ark/LexSem/.
 
 0. Make sure your system has the software described in the previous section.
 1. Download and unzip the AMALGrAM software release.
@@ -164,6 +164,6 @@ History
 
 This software was developed by [Nathan Schneider](http://nathan.cl).
 
-The codebase originated as a Python port of Michael Heilman's [Java supersense tagger for English](http://www.ark.cs.cmu.edu/mheilman/questions/SupesenseTagger-05-17-11.tar.gz), 
+The codebase originated as a Python port of Michael Heilman's [Java supersense tagger for English](https://github.com/kutschkem/SmithHeilmann_fork/tree/master/MIRATagger), 
 which was a reimplementation of the system described in Ciaramita and Altun (EMNLP 2006).
 
