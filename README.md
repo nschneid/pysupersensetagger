@@ -20,7 +20,7 @@ Obtaining the code
 ------------------
 
 To run this software you will need to [download the source code](https://github.com/nschneid/pysupersensetagger/archive/master.zip) (no binaries are available).
-The code will automatically be compiled from source when it is first run. 
+The code will automatically be compiled from source when it is first run.
 
 The latest development version can also be obtained via from GitHub (see [Contributing](#contributing)).
 
@@ -30,7 +30,7 @@ Dependencies
 
 ### Platform
 
-This software has been tested on recent Unix and Mac OS X platforms. 
+This software has been tested on recent Unix and Mac OS X platforms.
 It has *not* been tested on Windows.
 
 ### Software
@@ -59,7 +59,7 @@ The necessary lexical semantic resources and software are linked from http://www
 
 0. Make sure your system has the software described in the previous section.
 1. Download and unzip the AMALGrAM software release.
-2. Download and gunzip the tagger model in the AMALGrAM main directory.
+2. Download and gunzip the tagger model in the AMALGrAM main directory. (If gunzip fails, your web browser may have unzipped it for you; simply remove the .gz extension from the filename.)
 3. Download and unzip the English Multiword Expression Lexicons in the AMALGrAM main directory.
 4. If you have access to the SAID resource from LDC, follow the instructions in the lexicons package to build the said.json lexicon. Otherwise, create an empty file in its place:
 
@@ -145,7 +145,7 @@ Learning and Evaluation
 
 The evaluation scripts are src/mweval.py (for segmentation only) and src/ssteval.py (for supersense labels only).
 
-MWE+supersense model: The default model (sst.model) was trained with the hyperparameter settings: `--cutoff 5 --iters 4` (these were tuned by cross-validation on the training data). See (Schneider et al., NAACL-HLT 2015) for details.
+MWE+supersense model: The default model (sst.model) was trained with the hyperparameter settings: `--cutoff 5 --iters 4` (these were tuned by cross-validation on the training data). See (Schneider et al., NAACL-HLT 2015) for details, and REPLICATE.md for detailed instructions on replicating the main results from that paper.
 
 MWE-only model: The script train_test_mwe.sh executes the full pipeline of corpus preprocessing, POS tagging, training, test set prediction, and evaluation that constitutes the best experimental setting with automatic POS tags in (Schneider et al., *TACL* 2014). To replicate it, you will need the CMWE 1.0 corpus as well as the ARK TweetNLP POS Tagger and ewtb_pos.model. You will have to edit the `ark` variable in train_test_mwe.sh to point to the POS tagger directory.
 
@@ -164,6 +164,5 @@ History
 
 This software was developed by [Nathan Schneider](http://nathan.cl).
 
-The codebase originated as a Python port of Michael Heilman's [Java supersense tagger for English](https://github.com/kutschkem/SmithHeilmann_fork/tree/master/MIRATagger), 
+The codebase originated as a Python port of Michael Heilman's [Java supersense tagger for English](https://github.com/kutschkem/SmithHeilmann_fork/tree/master/MIRATagger),
 which was a reimplementation of the system described in Ciaramita and Altun (EMNLP 2006).
-
