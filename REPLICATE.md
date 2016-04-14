@@ -23,7 +23,7 @@ cut -f5 $traintags | sort | uniq | sed '/^\s*$/d' > $tagset
 
 5. Download the pretrained model file [sst.model.pickle.gz](http://www.cs.cmu.edu/~ark/LexSem/sst.model.pickle.gz). Run `gunzip` to attempt to unzip it; if this produces an error, your web browser has probably unzipped it for you, so just remove the .gz extension from the filename. Then run predict_sst.sh on the test data.
 
-6. You can retrain the model with the command below (with `$train` and `$test` data files), OR  and run `gunzip` if necessary.
+6. You can retrain the model with the command below (with `$train` and `$test` data files):
 
         python2.7 src/main.py --cutoff 5 --iters 4 --YY tagsets/bio2gNV_dim --defaultY O --debug --train $train --test-predict $test --bio NO_SINGLETON_B --cluster-file mwelex/yelpac-c1000-m25.gz --clusters --lex mwelex/{semcor_mwes,wordnet_mwes,said,phrases_dot_net,wikimwe,enwikt}.json
 
