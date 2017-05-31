@@ -12,7 +12,7 @@ and [test](http://www.cs.cmu.edu/~ark/LexSem/test.sentids) splits by sentence ID
 
 3. Run the following bash commands to remove the <code>\`</code> and <code>\`j</code> label refinements but keep the MWE part of the tag:
 
-    ```bash
+  ```bash
 # keep `a (auxiliaries), remove `j and plain `
 src/sst2tags.py $trainsst | sed -r $'s/-`j?\t/\t/g' > $traintags
 src/sst2tags.py $testsst | sed -r $'s/-`j?\t/\t/g' > $testtags
